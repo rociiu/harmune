@@ -70,16 +70,16 @@ enum HostLauncher {
     }
 
     /// Connects, starting the host first if it isn't running.
-    static func connect(socketPath: String, autoStart: Bool) async throws -> RemoteBackend {
+    static func connect(socketPath: String, autoStart: Bool, client: Hello.Client = .cli) async throws -> RemoteBackend {
         do {
-            return try await RemoteBackend.connect(path: socketPath, client: .cli)
+            return try await RemoteBackend.connect(path: socketPath, client: client)
         } catch let error as IPCError where error.isHostNotRunning && autoStart {
             try launch(socketPath: socketPath)
             let deadline = Date().addingTimeInterval(3)
             var delay = 0.05
             while Date() < deadline {
                 try await Task.sleep(for: .seconds(delay))
-                if let backend = try? await RemoteBackend.connect(path: socketPath, client: .cli) { return backend }
+                if let backend = try? await RemoteBackend.connect(path: socketPath, client: client) { return backend }
                 delay = min(delay * 2, 0.4)
             }
             throw HarmuneError(.unavailable, "Harmune host did not start within 3 s")

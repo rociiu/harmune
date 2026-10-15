@@ -10,6 +10,8 @@ public enum KeyCommand: String, Sendable, CaseIterable, Hashable {
     case goBack = "go_back", openSelected = "open_selected"
     case focusNext = "focus_next", focusPrevious = "focus_previous"
     case close = "close"
+    /// Close the current view; quit from the root view (`q`).
+    case quit = "quit"
     case search = "search", filter = "filter", filterNext = "filter_next", filterPrevious = "filter_previous"
     case commandMode = "command_mode", help = "help"
     case tabPrevious = "tab_previous", tabNext = "tab_next"
@@ -79,7 +81,7 @@ public struct Keymap: Sendable {
             ("h", .goBack), ("<left>", .goBack), ("l", .openSelected), ("<right>", .openSelected),
             ("<cr>", .openSelected), ("gg", .moveFirst), ("G", .moveLast),
             ("<c-d>", .halfPageDown), ("<c-u>", .halfPageUp),
-            ("<tab>", .focusNext), ("<s-tab>", .focusPrevious), ("<esc>", .close), ("q", .close),
+            ("<tab>", .focusNext), ("<s-tab>", .focusPrevious), ("<esc>", .close), ("q", .quit), ("<c-c>", .quit),
             ("/", .search), ("F", .filter), ("n", .filterNext), ("N", .filterPrevious),
             (":", .commandMode), ("?", .help), ("H", .tabPrevious), ("L", .tabNext),
             ("o", .sort), ("t", .toggleLayout),

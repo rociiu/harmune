@@ -14,7 +14,7 @@ import Testing
     @Test(arguments: [
         ("j", KeyCommand.moveDown), ("k", .moveUp), ("h", .goBack), ("l", .openSelected), ("<cr>", .openSelected),
         ("G", .moveLast), ("<c-d>", .halfPageDown), ("<c-u>", .halfPageUp), ("<tab>", .focusNext),
-        ("<s-tab>", .focusPrevious), ("<esc>", .close), ("q", .close), ("/", .search), ("F", .filter),
+        ("<s-tab>", .focusPrevious), ("<esc>", .close), ("q", .quit), ("/", .search), ("F", .filter),
         (":", .commandMode), ("?", .help), ("<space>", .playPause), (">", .nextTrack), ("<", .previousTrack),
         ("]", .seekForward), ("[", .seekBackward), ("s", .toggleShuffle), ("r", .cycleRepeat),
         ("f", .toggleFavorite), ("v", .toggleImmersive), ("a", .addToQueue), ("p", .playNext),
@@ -76,7 +76,7 @@ import Testing
     /// Collisions fixed in the spec review: s=shuffle, q=close, o=sort.
     @Test func reviewedCollisions() {
         #expect(run("s", context: .grid).last == .command(.toggleShuffle, count: nil))
-        #expect(run("q", context: .queue).last == .command(.close, count: nil))
+        #expect(run("q", context: .queue).last == .command(.quit, count: nil))
     }
 
     @Test func deadEndRetriesKeyAlone() {

@@ -17,7 +17,7 @@ let package = Package(
         .target(name: "HarmuneIPC", dependencies: ["HarmuneCore"]),
         // In-process fixture backend for contributors, CI and `--demo`.
         .target(name: "HarmuneDemo", dependencies: ["HarmuneCore"]),
-        // TUI. Currently: keymap engine and key decoding.
+        // TUI: renderer, store, views, keymap and the run loop.
         .target(name: "HarmuneTerminal", dependencies: ["HarmuneCore"]),
         .executableTarget(name: "harmune", dependencies: ["HarmuneCore", "HarmuneIPC", "HarmuneDemo", "HarmuneTerminal"]),
         // Development host serving DemoBackend over the socket.
@@ -28,5 +28,6 @@ let package = Package(
         .testTarget(name: "IPCTests", dependencies: ["HarmuneIPC", "HarmuneDemo"]),
         .testTarget(name: "DemoTests", dependencies: ["HarmuneDemo"]),
         .testTarget(name: "KeymapTests", dependencies: ["HarmuneTerminal"]),
+        .testTarget(name: "TUITests", dependencies: ["HarmuneTerminal", "HarmuneDemo"]),
     ]
 )

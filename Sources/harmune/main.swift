@@ -1,13 +1,16 @@
 import Darwin
 import Foundation
 import HarmuneCore
+import HarmuneDemo
 import HarmuneIPC
+import HarmuneTerminal
 
 let usage = """
 harmune \(HarmuneVersion.current) — your music, your terminal.
 
 USAGE
-  harmune                         Start the TUI (not yet implemented)
+  harmune                         Start the TUI (starts the host if needed)
+  harmune --demo                  Start the TUI on an in-process demo library
   harmune <command> [options]
 
 PLAYBACK
@@ -34,6 +37,7 @@ SERVICE
 
 OPTIONS
   --socket <path>                 Host socket (env HARMUNE_SOCKET)
+  --theme <name>                  harmune-midnight (default) or mono
   --version, --help
 """
 
@@ -48,7 +52,7 @@ struct Args {
     var positional: [String] = []
     var flags: Set<String> = []
     var options: [String: String] = [:]
-    static let valued: Set<String> = ["--socket", "--album", "--playlist", "--track"]
+    static let valued: Set<String> = ["--socket", "--album", "--playlist", "--track", "--theme"]
 
     init(_ raw: ArraySlice<String>) {
         var it = raw.makeIterator()
@@ -74,8 +78,7 @@ func run() async throws {
     let json = args.flags.contains("--json")
 
     guard let command = args.positional.first else {
-        print("The Harmune TUI is not implemented yet. The commands below work against the host:\n")
-        print(usage)
+        try await runTUI(demo: args.flags.contains("--demo"), socket: socket, themeName: args.options["--theme"])
         return
     }
     args.positional.removeFirst()
@@ -190,6 +193,45 @@ func run() async throws {
 
     default:
         throw CLIError("Unknown command '\(command)'. See harmune --help.", code: 64)
+    }
+}
+
+@MainActor
+func runTUI(demo: Bool, socket: String, themeName: String?) async throws {
+    guard TerminalIO.isInteractive else {
+        throw CLIError("The TUI needs an interactive terminal. Use subcommands (harmune --help) in scripts.", code: 64)
+    }
+    var theme = Theme.midnight
+    if let themeName {
+        guard let t = Theme.named(themeName) else {
+            throw CLIError("Unknown theme '\(themeName)'. Available: \(Theme.all.map(\.name).joined(separator: ", "))", code: 64)
+        }
+        theme = t
+    }
+
+    if demo {
+        let app = TUIApp(backend: DemoBackend(), theme: theme)
+        _ = try await app.run()
+        print("Harmune demo closed.")
+        return
+    }
+
+    let remote = try await HostLauncher.connect(socketPath: socket, autoStart: true, client: .tui)
+    let app = TUIApp(backend: remote, theme: theme, reconnect: {
+        try await HostLauncher.connect(socketPath: socket, autoStart: true, client: .tui)
+    })
+    let reason = try await app.run()
+
+    // Reconnects may have replaced the backend; ask the host fresh.
+    let current = try? await HostLauncher.connect(socketPath: socket, autoStart: false)
+    switch reason {
+    case .stopHost:
+        try? await current?.stopService(force: true)
+        print("Harmune host stopped.")
+    case .user:
+        if let current, await current.playbackState().isPlaying {
+            print("Harmune closed — music still playing (harmune service stop to stop it).")
+        }
     }
 }
 
