@@ -1,0 +1,244 @@
+import Darwin
+import Foundation
+import HarmuneCore
+import HarmuneIPC
+
+let usage = """
+harmune \(HarmuneVersion.current) — your music, your terminal.
+
+USAGE
+  harmune                         Start the TUI (not yet implemented)
+  harmune <command> [options]
+
+PLAYBACK
+  status [--json] [--watch]       Show what's playing (--watch streams NDJSON events)
+  play [<song-id>]                Resume, or play a song
+  play --album <id> [--track n]   Play an album from track n (1-based)
+  play --playlist <id> [--track n]
+  pause | toggle | next | previous
+  seek <seconds|+n|-n>
+  shuffle on|off
+  repeat off|one|all
+
+QUEUE
+  queue [--json]                  Show the queue
+  add <song-id>... [--next]       Add songs to the end (or play next)
+
+BROWSE
+  search <query> [--library] [--json]
+  library songs|albums|artists|playlists [--json]
+  album <id> | playlist <id> | artist <id>
+
+SERVICE
+  service status|start|stop [--force]
+
+OPTIONS
+  --socket <path>                 Host socket (env HARMUNE_SOCKET)
+  --version, --help
+"""
+
+struct CLIError: Error, CustomStringConvertible {
+    var description: String
+    var code: Int32 = 1
+    init(_ d: String, code: Int32 = 1) { description = d; self.code = code }
+}
+
+/// Minimal argument cursor: positional args plus `--flag` / `--opt value`.
+struct Args {
+    var positional: [String] = []
+    var flags: Set<String> = []
+    var options: [String: String] = [:]
+    static let valued: Set<String> = ["--socket", "--album", "--playlist", "--track"]
+
+    init(_ raw: ArraySlice<String>) {
+        var it = raw.makeIterator()
+        while let a = it.next() {
+            if a == "-h" { flags.insert("--help") }
+            else if Args.valued.contains(a) { options[a] = it.next() ?? "" }
+            else if a.hasPrefix("--") { flags.insert(a) }
+            else { positional.append(a) }
+        }
+    }
+
+    mutating func next(_ what: String) throws -> String {
+        guard !positional.isEmpty else { throw CLIError("Missing \(what)", code: 64) }
+        return positional.removeFirst()
+    }
+}
+
+func run() async throws {
+    var args = Args(CommandLine.arguments.dropFirst())
+    if args.flags.contains("--version") { print("harmune \(HarmuneVersion.current)"); return }
+    if args.flags.contains("--help") { print(usage); return }
+    let socket = args.options["--socket"] ?? HarmunePaths.socketPath()
+    let json = args.flags.contains("--json")
+
+    guard let command = args.positional.first else {
+        print("The Harmune TUI is not implemented yet. The commands below work against the host:\n")
+        print(usage)
+        return
+    }
+    args.positional.removeFirst()
+
+    if command == "service" {
+        try await service(try args.next("service subcommand"), args: args, socket: socket)
+        return
+    }
+    if command == "help" { print(usage); return }
+
+    let backend = try await HostLauncher.connect(socketPath: socket, autoStart: true)
+
+    switch command {
+    case "status":
+        if args.flags.contains("--watch") {
+            for await event in await backend.events() {
+                if case .playback(let s) = event { print(Format.json(StatusJSON(s)).replacingOccurrences(of: "\n", with: "")) }
+            }
+            return
+        }
+        let s = await backend.playbackState()
+        print(json ? Format.json(StatusJSON(s)) : Format.status(s))
+
+    case "play":
+        let track = args.options["--track"].flatMap(Int.init).map { $0 - 1 } ?? 0
+        if let album = args.options["--album"] {
+            try await backend.play(.container(.album, id: album, startIndex: track))
+        } else if let playlist = args.options["--playlist"] {
+            try await backend.play(.container(.playlist, id: playlist, startIndex: track))
+        } else if let song = args.positional.first {
+            try await backend.play(.song(id: song))
+        } else {
+            try await backend.play(.resume)
+        }
+        print(Format.status(await backend.playbackState()))
+
+    case "pause": try await backend.pause()
+    case "toggle": try await backend.togglePlayPause()
+    case "next":
+        try await backend.next()
+        print(Format.status(await backend.playbackState()))
+    case "previous":
+        try await backend.previous()
+        print(Format.status(await backend.playbackState()))
+
+    case "seek":
+        let raw = try args.next("seconds")
+        guard let value = Double(raw) else { throw CLIError("seek expects seconds, +n or -n", code: 64) }
+        let current = await backend.playbackState().position(at: Date())
+        let target = raw.hasPrefix("+") || raw.hasPrefix("-") ? current + value : value
+        try await backend.seek(to: max(0, target))
+
+    case "shuffle":
+        switch try args.next("on|off") {
+        case "on": try await backend.setShuffle(true)
+        case "off": try await backend.setShuffle(false)
+        default: throw CLIError("shuffle expects on|off", code: 64)
+        }
+
+    case "repeat":
+        guard let mode = RepeatMode(rawValue: try args.next("off|one|all")) else {
+            throw CLIError("repeat expects off|one|all", code: 64)
+        }
+        try await backend.setRepeat(mode)
+
+    case "queue":
+        let q = await backend.queueState()
+        print(json ? Format.json(q) : Format.queue(q))
+
+    case "add":
+        guard !args.positional.isEmpty else { throw CLIError("add expects one or more song ids", code: 64) }
+        try await backend.enqueue(songIDs: args.positional, at: args.flags.contains("--next") ? .next : .last)
+        print("Added \(args.positional.count) song(s)")
+
+    case "search":
+        let text = args.positional.joined(separator: " ")
+        guard !text.isEmpty else { throw CLIError("search expects a query", code: 64) }
+        let r = try await backend.search(SearchQuery(text: text, scope: args.flags.contains("--library") ? .library : .catalog))
+        print(json ? Format.json(r) : Format.search(r))
+
+    case "library":
+        switch try args.next("songs|albums|artists|playlists") {
+        case "songs":
+            let p = try await backend.librarySongs(sort: .title, offset: 0, limit: 200)
+            print(json ? Format.json(p) : Format.tracks(p.items))
+        case "albums":
+            let p = try await backend.libraryAlbums(sort: .title, offset: 0, limit: 200)
+            print(json ? Format.json(p) : Format.albums(p.items))
+        case "artists":
+            let p = try await backend.libraryArtists(offset: 0, limit: 200)
+            print(json ? Format.json(p) : p.items.map { "  \(Format.pad($0.id, 6)) \($0.name)" }.joined(separator: "\n"))
+        case "playlists":
+            let p = try await backend.libraryPlaylists(offset: 0, limit: 200)
+            print(json ? Format.json(p) : p.items.map { "  \(Format.pad($0.id, 6)) \(Format.pad($0.name, 24)) \($0.trackCount) songs" }.joined(separator: "\n"))
+        default: throw CLIError("library expects songs|albums|artists|playlists", code: 64)
+        }
+
+    case "album":
+        let d = try await backend.album(id: try args.next("album id"))
+        if json { print(Format.json(d)) } else {
+            print("\(d.album.title) — \(d.album.artist)  \(d.album.year.map(String.init) ?? "") · \(d.album.genre ?? "")\n")
+            print(Format.tracks(d.tracks))
+        }
+    case "playlist":
+        let d = try await backend.playlist(id: try args.next("playlist id"))
+        if json { print(Format.json(d)) } else { print("\(d.playlist.name)\n"); print(Format.tracks(d.tracks)) }
+    case "artist":
+        let d = try await backend.artist(id: try args.next("artist id"))
+        if json { print(Format.json(d)) } else {
+            print("\(d.artist.name)\n\nTOP SONGS\n\(Format.tracks(d.topSongs))\n\nALBUMS\n\(Format.albums(d.albums))")
+        }
+
+    default:
+        throw CLIError("Unknown command '\(command)'. See harmune --help.", code: 64)
+    }
+}
+
+func service(_ sub: String, args: Args, socket: String) async throws {
+    switch sub {
+    case "status":
+        guard let backend = try? await HostLauncher.connect(socketPath: socket, autoStart: false) else {
+            print("Harmune host: not running"); return
+        }
+        let s = try await backend.serviceStatus()
+        if args.flags.contains("--json") { print(Format.json(s)); return }
+        print("""
+        Harmune host: running
+          pid       \(s.pid)
+          version   \(s.hostVersion)
+          backend   \(s.backend)
+          uptime    \(Format.time(s.uptime))
+          clients   \(s.clients)
+          playing   \(s.isPlaying ? "yes" : "no")
+          socket    \(socket)
+        """)
+    case "start":
+        _ = try await HostLauncher.connect(socketPath: socket, autoStart: true)
+        print("Harmune host is running")
+    case "stop":
+        guard let backend = try? await HostLauncher.connect(socketPath: socket, autoStart: false) else {
+            print("Harmune host: not running"); return
+        }
+        do {
+            try await backend.stopService(force: args.flags.contains("--force"))
+            print("Harmune host stopped")
+        } catch let e as HarmuneError where e.code == .invalidArgument {
+            throw CLIError("Music is playing. Stopping the host will interrupt playback; re-run with --force.")
+        }
+    default:
+        throw CLIError("service expects status|start|stop", code: 64)
+    }
+}
+
+signal(SIGPIPE, SIG_IGN)
+do {
+    try await run()
+} catch let e as CLIError {
+    FileHandle.standardError.write(Data("harmune: \(e.description)\n".utf8))
+    exit(e.code)
+} catch let e as HarmuneError {
+    FileHandle.standardError.write(Data("harmune: \(e.message)\n".utf8))
+    exit(e.code == .unavailable ? 69 : 1)
+} catch {
+    FileHandle.standardError.write(Data("harmune: \(error)\n".utf8))
+    exit(1)
+}
