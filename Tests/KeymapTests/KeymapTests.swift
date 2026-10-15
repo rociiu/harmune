@@ -115,6 +115,9 @@ import Testing
         #expect(Key.parseSequence("<") == [.char("<")])
         #expect(Key.parseSequence("g,") == [.char("g"), .char(",")])
         #expect(Key.parseSequence("<bogus>") == nil)
+        #expect(Key.parseSequence("space") == [.space])
+        #expect(Key.parseSequence("Enter") == [.enter])
+        #expect(Key.parseSequence("gs") == [.char("g"), .char("s")])
     }
 
     @Test func everyCommandNameIsUnique() {

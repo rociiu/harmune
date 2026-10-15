@@ -28,6 +28,8 @@ public actor DemoBackend: MusicBackend {
         self.latency = latency
         if autoTick {
             Task { await self.startTicker() }
+            let keys = library.artworkKeys
+            Task.detached(priority: .utility) { DemoArtwork.ensureGenerated(keys: keys) }
         }
     }
 

@@ -23,6 +23,10 @@ public struct DemoLibrary: Sendable {
 
     public static let standard = DemoLibrary(seed: 0x4841524D)
 
+    public var artworkKeys: [String] {
+        albums.compactMap(\.artwork?.key) + playlists.compactMap(\.artwork?.key) + artists.compactMap(\.artwork?.key)
+    }
+
     public init(seed: UInt64, artistCount: Int = 12, albumCount: Int = 30, playlistCount: Int = 8) {
         var rng = SplitMix64(seed: seed)
 
@@ -46,7 +50,7 @@ public struct DemoLibrary: Sendable {
         }
 
         let artists = artistNames.prefix(artistCount).enumerated().map { i, name in
-            Artist(id: "ar\(i + 1)", name: name, artwork: ArtworkRef(key: "artist-\(i + 1)", averageColor: palette[i % palette.count]))
+            Artist(id: "ar\(i + 1)", name: name, artwork: ArtworkRef(key: "artist-\(i + 1)", averageColor: palette[i % palette.count], path: DemoArtwork.path(for: "artist-\(i + 1)")))
         }
 
         var albums: [Album] = []
@@ -59,7 +63,7 @@ public struct DemoLibrary: Sendable {
             usedTitles.insert(albumTitle)
             let albumID = "al\(a + 1)"
             let count = 8 + rng.next(5)
-            let art = ArtworkRef(key: "album-\(a + 1)", averageColor: palette[rng.next(palette.count)])
+            let art = ArtworkRef(key: "album-\(a + 1)", averageColor: palette[rng.next(palette.count)], path: DemoArtwork.path(for: "album-\(a + 1)"))
             albums.append(Album(id: albumID, title: albumTitle, artist: artist.name, year: 1995 + rng.next(31),
                                 genre: genres[rng.next(genres.count)], trackCount: count, artwork: art))
             for t in 0..<count {
@@ -83,7 +87,7 @@ public struct DemoLibrary: Sendable {
             }
             playlistTrackIDs[id] = ids
             playlists.append(Playlist(id: id, name: playlistNames[p], curator: "Harmune Demo", trackCount: count,
-                                      artwork: ArtworkRef(key: "playlist-\(p + 1)", averageColor: palette[p % palette.count])))
+                                      artwork: ArtworkRef(key: "playlist-\(p + 1)", averageColor: palette[p % palette.count], path: DemoArtwork.path(for: "playlist-\(p + 1)"))))
         }
 
         self.artists = artists

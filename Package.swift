@@ -19,7 +19,9 @@ let package = Package(
         .target(name: "HarmuneDemo", dependencies: ["HarmuneCore"]),
         // TUI: renderer, store, views, keymap and the run loop.
         .target(name: "HarmuneTerminal", dependencies: ["HarmuneCore"]),
-        .executableTarget(name: "harmune", dependencies: ["HarmuneCore", "HarmuneIPC", "HarmuneDemo", "HarmuneTerminal"]),
+        // config.toml loading and validation. No dependencies.
+        .target(name: "HarmuneConfig"),
+        .executableTarget(name: "harmune", dependencies: ["HarmuneCore", "HarmuneIPC", "HarmuneDemo", "HarmuneTerminal", "HarmuneConfig"]),
         // Development host serving DemoBackend over the socket.
         // The real MusicKit host is a signed app bundle (Apps/HarmuneHost).
         .executableTarget(name: "harmune-host", dependencies: ["HarmuneCore", "HarmuneIPC", "HarmuneDemo"]),
@@ -29,5 +31,6 @@ let package = Package(
         .testTarget(name: "DemoTests", dependencies: ["HarmuneDemo"]),
         .testTarget(name: "KeymapTests", dependencies: ["HarmuneTerminal"]),
         .testTarget(name: "TUITests", dependencies: ["HarmuneTerminal", "HarmuneDemo"]),
+        .testTarget(name: "ConfigTests", dependencies: ["HarmuneConfig", "HarmuneTerminal"]),
     ]
 )

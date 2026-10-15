@@ -142,7 +142,8 @@ public func screen(for route: Route, in s: AppState) -> ScreenModel {
             let total = d.tracks.reduce(0) { $0 + $1.duration }
             header = DetailHeader(title: d.album.title, subtitle: d.album.artist,
                                   meta: [d.album.year.map(String.init), d.album.genre, "\(d.tracks.count) songs", formatTime(total)]
-                                    .compactMap { $0 }.joined(separator: " · "))
+                                    .compactMap { $0 }.joined(separator: " · "),
+                                  artworkPath: d.album.artwork?.path)
         }
         model = ScreenModel(breadcrumb: "Library / Albums / \(header?.title ?? "…")",
                             columns: [.fixed("#", 4, right: true), .flex("TITLE", 3), .flex("ARTIST", 2, minContent: 70),
@@ -154,7 +155,8 @@ public func screen(for route: Route, in s: AppState) -> ScreenModel {
         if case .playlistDetail(let d) = data {
             rows = d.tracks.enumerated().map { songRow($1, $0, container: .playlist, id: id) }
             header = DetailHeader(title: d.playlist.name, subtitle: d.playlist.curator ?? "",
-                                  meta: "\(d.tracks.count) songs · \(formatTime(d.tracks.reduce(0) { $0 + $1.duration }))")
+                                  meta: "\(d.tracks.count) songs · \(formatTime(d.tracks.reduce(0) { $0 + $1.duration }))",
+                                  artworkPath: d.playlist.artwork?.path)
         }
         model = ScreenModel(breadcrumb: "Library / Playlists / \(header?.title ?? "…")", columns: songColumns,
                             rows: rows, header: header, empty: "", hints: songHints)
@@ -166,7 +168,8 @@ public func screen(for route: Route, in s: AppState) -> ScreenModel {
             rows += d.topSongs.enumerated().map { songRow($1, $0) }
             rows.append(Row(kind: .header("ALBUMS"), cells: []))
             rows += d.albums.map { Row(kind: .album($0), cells: ["", $0.title, $0.year.map(String.init) ?? "", "", ""]) }
-            header = DetailHeader(title: d.artist.name, subtitle: "Artist", meta: "\(d.albums.count) albums")
+            header = DetailHeader(title: d.artist.name, subtitle: "Artist", meta: "\(d.albums.count) albums",
+                                  artworkPath: d.albums.first?.artwork?.path)
         }
         model = ScreenModel(breadcrumb: "Library / Artists / \(header?.title ?? "…")", columns: songColumns,
                             rows: rows, header: header, empty: "", hints: songHints)

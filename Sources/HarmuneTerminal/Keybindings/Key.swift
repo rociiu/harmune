@@ -34,6 +34,9 @@ public enum Key: Hashable, Sendable, CustomStringConvertible {
 
     /// Parses a sequence such as `gg`, `<c-d>` or `<space>`.
     public static func parseSequence(_ text: String) -> [Key]? {
+        // A bare key name ("space", "enter", "esc") means that key, as in the
+        // spec's example config; otherwise "space" would be five keys.
+        if text.count > 1, !text.contains("<"), let key = named(text.lowercased()) { return [key] }
         var keys: [Key] = []
         var i = text.startIndex
         while i < text.endIndex {

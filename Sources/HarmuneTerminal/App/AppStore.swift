@@ -14,18 +14,28 @@ public final class AppStore {
     public var onQuit: (QuitReason) -> Void = { _ in }
     /// Rows visible in the content list; set by the run loop on layout.
     public var listHeight = 20 { didSet { adjustScroll() } }
+    /// Tiles per row when the album grid is showing, else 0. Set by the run loop.
+    public var gridColumns = 0 { didSet { if gridColumns != oldValue { adjustScroll() } } }
+
+    public func setAlbumGrid(_ on: Bool) { state.albumGrid = on }
+
+    private var gridActive: Bool { gridColumns > 0 && state.route == .albums && state.focus == .content }
 
     private let reconnect: (@Sendable () async throws -> any MusicBackend)?
-    private var resolver = KeyResolver()
+    private var resolver: KeyResolver
+    private let startRoute: Route
     private var tasks: [UUID: Task<Void, Never>] = [:]
     private var searchTask: Task<Void, Never>?
     private var eventsTask: Task<Void, Never>?
     private let clock: () -> Date
 
     public init(backend: any MusicBackend, theme: Theme = .midnight,
+                keymap: Keymap = .standard, sequenceTimeout: TimeInterval = 0.6, startRoute: Route = .home,
                 reconnect: (@Sendable () async throws -> any MusicBackend)? = nil,
                 clock: @escaping () -> Date = { Date() }) {
         self.backend = backend
+        self.resolver = KeyResolver(keymap: keymap, timeout: sequenceTimeout)
+        self.startRoute = startRoute
         self.reconnect = reconnect
         self.clock = clock
         state.theme = theme
@@ -34,10 +44,13 @@ public final class AppStore {
 
     // MARK: - Lifecycle
 
+    /// Updated by the run loop as artwork decodes; no redraw is triggered.
+    public func setArtwork(_ art: ArtworkSnapshot) { state.art = art }
+
     public func start() async {
         await refreshSession()
         subscribe()
-        load(.home)
+        go(startRoute)
         changed()
     }
 
@@ -118,7 +131,8 @@ public final class AppStore {
     // MARK: - Keys
 
     private var keyContext: KeyContext {
-        state.focus == .sidebar ? .list : state.route.keyContext
+        if gridActive { return .grid }
+        return state.focus == .sidebar ? .list : state.route.keyContext
     }
 
     public func handle(_ key: Key) {
@@ -160,8 +174,10 @@ public final class AppStore {
     public func perform(_ command: KeyCommand, count: Int? = nil) {
         let n = count ?? 1
         switch command {
-        case .moveDown, .filterNext: move(by: n)
-        case .moveUp, .filterPrevious: move(by: -n)
+        case .moveDown: move(by: gridActive ? n * gridColumns : n)
+        case .moveUp: move(by: gridActive ? -n * gridColumns : -n)
+        case .filterNext: move(by: n)
+        case .filterPrevious: move(by: -n)
         case .moveLeft: move(by: -n)
         case .moveRight: move(by: n)
         case .moveFirst: if let count { select(line: count) } else { move(by: Int.min / 2) }
@@ -226,8 +242,12 @@ public final class AppStore {
                 scheduleSearch(immediate: true)
                 toast("Searching \(state.searchScope == .catalog ? "Apple Music" : "your library")")
             }
-        case .sort, .toggleLayout:
-            toast("\(command == .sort ? "Sorting" : "Grid view") isn't available yet", error: true)
+        case .toggleLayout:
+            guard state.route == .albums else { toast("Grid view is available in Albums", error: true); break }
+            state.albumGrid.toggle()
+            toast(state.albumGrid ? "Grid view" : "List view")
+        case .sort:
+            toast("Sorting isn't available yet", error: true)
 
         case .playPause: run("Play/Pause") { b in try await b.togglePlayPause() }
         case .nextTrack: run("Next") { b in try await b.next() }
@@ -428,6 +448,16 @@ public final class AppStore {
 
     private func adjustScroll() {
         let route = state.route
+        if gridActive {
+            // Scroll is measured in tile rows.
+            let visible = max(1, listHeight / ShellView.gridTileHeight)
+            let row = selectedIndex / gridColumns
+            var top = state.scroll[route] ?? 0
+            if row < top { top = row }
+            if row >= top + visible { top = row - visible + 1 }
+            state.scroll[route] = max(0, top)
+            return
+        }
         let height = max(1, listHeight)
         var top = state.scroll[route] ?? 0
         let sel = selectedIndex

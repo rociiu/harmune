@@ -8,21 +8,21 @@ Your music. Your terminal. A keyboard-first Apple Music player for macOS.
 
 ## Status
 
-Phase 1 foundations (plan M1.1–M1.3, plus a first pass of M1.5 screens):
+Phase 1 MVP slices (plan M1.1–M1.6, running on the demo backend):
 
 | Module | What's there |
 |---|---|
 | `HarmuneCore` | Domain models, the `MusicBackend` protocol, playback clock extrapolation, typed errors, paths |
 | `HarmuneIPC` | NDJSON wire protocol, Unix socket server/client (0600, same-UID peer check, single-instance lock), `RemoteBackend` |
-| `HarmuneDemo` | `DemoBackend`: deterministic fictional library, simulated playback clock, queue/shuffle/repeat |
-| `HarmuneTerminal` | The TUI. A small renderer of our own (cell canvas + diffed ANSI output, truecolor/256/`NO_COLOR`), store, keymap, and screens: Home, Search, Songs, Albums, Artists, Playlists, album/playlist/artist detail, Queue, Now Playing, help, command line |
+| `HarmuneDemo` | `DemoBackend`: deterministic fictional library with generated cover art, simulated playback clock, queue/shuffle/repeat |
+| `HarmuneTerminal` | The TUI. A small renderer of our own (cell canvas + diffed ANSI output, truecolor/256/`NO_COLOR`), store, keymap, and screens: Home, Search, Songs, Albums (artwork grid or list, `t`), Artists, Playlists, album/playlist/artist detail, Queue, Now Playing, help, command line. Artwork via the Kitty graphics protocol (Kitty, Ghostty) or half-block pixels elsewhere |
+| `HarmuneConfig` | `config.toml` parsing and validation with line-numbered warnings; custom keybindings |
 | `harmune` | Launches the TUI with no arguments, plus CLI subcommands for playback, queue, search, library and `service` management. Auto-starts the host detached from the terminal |
 | `harmune-host` | Development host that serves `DemoBackend` over the socket |
 
 Not built yet:
-- real terminal artwork (Kitty / iTerm2 / Sixel): album art is currently a half-block gradient placeholder
-- the album grid view, sorting and favorites
-- `config.toml` and themes beyond `harmune-midnight` and `mono`
+- iTerm2 and Sixel image protocols, tmux passthrough, and querying the terminal for graphics support (detection is by terminal name; `HARMUNE_GRAPHICS=kitty|halfblock|none` overrides it)
+- sorting, favorites, and themes beyond `harmune-midnight` and `mono`
 - the signed MusicKit host app (Phase 0 needs an Apple Developer account)
 
 **UI framework decision:** instead of the beta SwiftTUI, Harmune uses a small renderer of its own, the fallback in the plan's Phase 0. Views only draw into a `Canvas`, so this can be revisited later.
@@ -66,6 +66,37 @@ Press `?` inside the app for keys. The CLI also works against the same host:
 ```
 
 The first command that needs the host starts `harmune-host --demo` in its own session, so it keeps running after the terminal closes. The host exits after 30 idle minutes. Set `HARMUNE_SOCKET=/tmp/x.sock` to use an isolated socket.
+
+## Configuration
+
+Harmune reads `~/.config/harmune/config.toml` (or `$XDG_CONFIG_HOME/harmune/config.toml`, or `--config <path>`). A problem in the file never stops the app: it shows a warning and uses the default.
+
+```toml
+[general]
+theme = "harmune-midnight"   # or "mono"
+start_page = "albums"        # home, search, songs, albums, artists, playlists, queue
+
+[appearance]
+show_artwork = true
+graphics = "auto"            # auto, kitty, halfblock, none
+album_view = "grid"          # grid or table
+
+[animation]
+reduced_motion = false
+
+[keys]
+sequence_timeout_ms = 600
+
+[keybindings.normal]
+"<c-n>" = "next_track"
+"s" = "none"                 # unbind
+```
+
+Check a config file:
+
+```bash
+.build/debug/harmune config check
+```
 
 ## Tests
 

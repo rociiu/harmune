@@ -60,7 +60,8 @@ enum Visualizer {
     @discardableResult
     static func draw(_ c: inout Canvas, _ r: Rect, _ s: AppState, compact: Bool = false) -> Int {
         guard r.width > 0, r.height > 0, let track = s.playback.track else { return 0 }
-        let t = s.playback.position(at: s.now)
+        // Reduced motion: a still frame.
+        let t = s.art.reducedMotion ? 0 : s.playback.position(at: s.now)
         let seed = Double(stableHash(track.id) % 1000) / 100
         let bars = compact ? r.width : min(r.width, 48)
         let x0 = r.x + (r.width - bars) / 2
@@ -89,7 +90,7 @@ enum NowPlayingView {
         let artH = max(3, min((r.height - 10), Int(Double(r.height) * 0.55)))
         let artW = min(r.width - 4, artH * 2)
         let art = Rect(x: r.x + (r.width - artW) / 2, y: r.y + 1, width: artW, height: artH)
-        ArtworkPlaceholder.draw(&c, art, seed: track.album, theme: t)
+        Artwork.draw(&c, art, path: track.artwork?.path, seed: track.album, theme: t, art: s.art)
 
         var y = art.maxY + 1
         func centered(_ text: String, _ style: Style) {

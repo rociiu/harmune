@@ -47,7 +47,7 @@ public enum KeyContext: String, Sendable, CaseIterable, Hashable {
 }
 
 public struct Keymap: Sendable {
-    public private(set) var bindings: [KeyContext: [[Key]: KeyCommand]]
+    public internal(set) var bindings: [KeyContext: [[Key]: KeyCommand]]
 
     public init(bindings: [KeyContext: [[Key]: KeyCommand]] = [:]) { self.bindings = bindings }
 

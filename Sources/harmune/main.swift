@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import HarmuneConfig
 import HarmuneCore
 import HarmuneDemo
 import HarmuneIPC
@@ -35,9 +36,14 @@ BROWSE
 SERVICE
   service status|start|stop [--force]
 
+CONFIG
+  config path                     Print the config file location
+  config check                    Validate the config file
+
 OPTIONS
   --socket <path>                 Host socket (env HARMUNE_SOCKET)
   --theme <name>                  harmune-midnight (default) or mono
+  --config <path>                 Config file (default: \(HarmuneConfig.defaultPath()))
   --version, --help
 """
 
@@ -52,7 +58,7 @@ struct Args {
     var positional: [String] = []
     var flags: Set<String> = []
     var options: [String: String] = [:]
-    static let valued: Set<String> = ["--socket", "--album", "--playlist", "--track", "--theme"]
+    static let valued: Set<String> = ["--socket", "--album", "--playlist", "--track", "--theme", "--config"]
 
     init(_ raw: ArraySlice<String>) {
         var it = raw.makeIterator()
@@ -77,8 +83,10 @@ func run() async throws {
     let socket = args.options["--socket"] ?? HarmunePaths.socketPath()
     let json = args.flags.contains("--json")
 
+    let configPath = args.options["--config"] ?? HarmuneConfig.defaultPath()
     guard let command = args.positional.first else {
-        try await runTUI(demo: args.flags.contains("--demo"), socket: socket, themeName: args.options["--theme"])
+        try await runTUI(demo: args.flags.contains("--demo"), socket: socket, themeName: args.options["--theme"],
+                         configPath: configPath)
         return
     }
     args.positional.removeFirst()
@@ -88,6 +96,27 @@ func run() async throws {
         return
     }
     if command == "help" { print(usage); return }
+    if command == "config" {
+        switch try args.next("path|check") {
+        case "path":
+            print(configPath)
+        case "check":
+            let (config, warnings) = HarmuneConfig.load(path: configPath)
+            let resolved = resolveTUIOptions(config)
+            let all = warnings + resolved.warnings
+            if !FileManager.default.fileExists(atPath: configPath) {
+                print("No config file at \(configPath); using defaults.")
+            } else if all.isEmpty {
+                print("\(configPath): OK")
+            } else {
+                all.forEach { print("warning: \($0)") }
+                throw CLIError("\(all.count) problem(s) in \(configPath)")
+            }
+        default:
+            throw CLIError("config expects path|check", code: 64)
+        }
+        return
+    }
 
     let backend = try await HostLauncher.connect(socketPath: socket, autoStart: true)
 
@@ -196,28 +225,69 @@ func run() async throws {
     }
 }
 
+/// TUI settings derived from the config file.
+struct TUIOptions {
+    var theme = Theme.midnight
+    var graphics: GraphicsMode?
+    var reducedMotion = false
+    var albumGrid = true
+    var keymap = Keymap.standard
+    var sequenceTimeout = 0.6
+    var startRoute = Route.home
+    var warnings: [String] = []
+}
+
+func resolveTUIOptions(_ config: HarmuneConfig) -> TUIOptions {
+    var o = TUIOptions()
+    if let theme = Theme.named(config.theme) { o.theme = theme }
+    else { o.warnings.append("unknown theme \"\(config.theme)\"; available: \(Theme.all.map(\.name).joined(separator: ", "))") }
+    o.graphics = !config.showArtwork ? GraphicsMode.none : GraphicsMode(rawValue: config.graphics)
+    o.reducedMotion = config.reducedMotion || !config.animations
+    o.albumGrid = config.albumView == "grid"
+    o.sequenceTimeout = Double(config.sequenceTimeoutMs) / 1000
+    o.warnings += o.keymap.apply(overrides: config.keybindings)
+    let routes: [String: Route] = ["home": .home, "search": .search, "songs": .songs, "albums": .albums,
+                                   "artists": .artists, "playlists": .playlists, "queue": .queue]
+    o.startRoute = routes[config.startPage] ?? .home
+    return o
+}
+
 @MainActor
-func runTUI(demo: Bool, socket: String, themeName: String?) async throws {
+func runTUI(demo: Bool, socket: String, themeName: String?, configPath: String) async throws {
     guard TerminalIO.isInteractive else {
         throw CLIError("The TUI needs an interactive terminal. Use subcommands (harmune --help) in scripts.", code: 64)
     }
-    var theme = Theme.midnight
+    let (config, configWarnings) = HarmuneConfig.load(path: configPath)
+    var options = resolveTUIOptions(config)
+    options.warnings = configWarnings + options.warnings
     if let themeName {
         guard let t = Theme.named(themeName) else {
             throw CLIError("Unknown theme '\(themeName)'. Available: \(Theme.all.map(\.name).joined(separator: ", "))", code: 64)
         }
-        theme = t
+        options.theme = t
+    }
+
+    func makeApp(_ backend: any MusicBackend,
+                 reconnect: (@Sendable () async throws -> any MusicBackend)? = nil) -> TUIApp {
+        let app = TUIApp(backend: backend, theme: options.theme, reconnect: reconnect, graphics: options.graphics,
+                         reducedMotion: options.reducedMotion, albumGrid: options.albumGrid, keymap: options.keymap,
+                         sequenceTimeout: options.sequenceTimeout, startRoute: options.startRoute)
+        if let first = options.warnings.first {
+            let more = options.warnings.count > 1 ? " (+\(options.warnings.count - 1) more; run harmune config check)" : ""
+            app.notify("Config: \(first)\(more)", error: true)
+        }
+        return app
     }
 
     if demo {
-        let app = TUIApp(backend: DemoBackend(), theme: theme)
+        let app = makeApp(DemoBackend())
         _ = try await app.run()
         print("Harmune demo closed.")
         return
     }
 
     let remote = try await HostLauncher.connect(socketPath: socket, autoStart: true, client: .tui)
-    let app = TUIApp(backend: remote, theme: theme, reconnect: {
+    let app = makeApp(remote, reconnect: {
         try await HostLauncher.connect(socketPath: socket, autoStart: true, client: .tui)
     })
     let reason = try await app.run()

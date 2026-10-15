@@ -89,6 +89,7 @@ public struct DetailHeader: Sendable, Equatable {
     public var title: String
     public var subtitle: String
     public var meta: String
+    public var artworkPath: String?
 }
 
 /// Data loaded for a route.
@@ -154,6 +155,10 @@ public struct AppState: Sendable {
     public var toast: Toast?
     public var theme = Theme.midnight
     public var now = Date()
+    /// Album list as an artwork grid (`t` toggles).
+    public var albumGrid = true
+    /// Graphics mode and decoded artwork, maintained by the run loop.
+    public var art = ArtworkSnapshot()
 
     public init() {}
 

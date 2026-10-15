@@ -63,7 +63,11 @@ public enum ShellView {
         if let r = layout.rightPanel { drawRightPanel(&c, r, s) }
         drawPlayer(&c, layout.player, s)
         drawStatus(&c, layout.status, s, model)
-        if let overlay = s.overlay { drawOverlay(&c, overlay, s) }
+        if let overlay = s.overlay {
+            // Protocol images draw above text, so hide them under overlays.
+            c.imagePlacements.removeAll()
+            drawOverlay(&c, overlay, s)
+        }
         return c
     }
 
@@ -173,13 +177,22 @@ public enum ShellView {
         // Detail header (album/playlist/artist)
         if let h = m.header {
             let art = Rect(x: area.x, y: y, width: 8, height: 4)
-            ArtworkPlaceholder.draw(&c, art, seed: h.title, theme: t)
+            Artwork.draw(&c, art, path: h.artworkPath, seed: h.title, theme: t, art: s.art)
             let tx = art.maxX + 2
             c.text(h.title.uppercased(), x: tx, y: y, maxWidth: area.maxX - tx, style: Style(fg: t.text, bold: true))
             c.text(h.subtitle, x: tx, y: y + 1, maxWidth: area.maxX - tx, style: Style(fg: t.accent))
             c.text(h.meta, x: tx, y: y + 2, maxWidth: area.maxX - tx, style: t.secondary)
             c.text("Enter play from track   p next   a queue", x: tx, y: y + 3, maxWidth: area.maxX - tx, style: t.dimmed)
             y += 5
+        }
+
+        if gridApplies(s, width: area.width) {
+            drawGrid(&c, Rect(x: area.x, y: y, width: area.width, height: r.maxY - 1 - y), s, m,
+                     selectedIndex: selectedIndex, focused: focused)
+            if let footer = m.footer {
+                c.text(footer, x: area.x + 2, y: r.maxY - 1, maxWidth: area.width - 2, style: t.dimmed)
+            }
+            return
         }
 
         // Columns
@@ -235,6 +248,58 @@ public enum ShellView {
         }
     }
 
+    // MARK: Album grid
+
+    static let gridTileWidth = 16
+    static let gridArtHeight = 8
+    static let gridTileHeight = gridArtHeight + 3  // art + title + artist + gap
+
+    static func gridApplies(_ s: AppState, width: Int) -> Bool {
+        s.route == .albums && s.albumGrid && width >= gridTileWidth + 6
+    }
+
+    /// Tiles per row for the current frame, or 0 when the grid isn't shown.
+    public static func gridColumns(for s: AppState, layout: ShellLayout) -> Int {
+        let width = layout.content.width - 4
+        guard gridApplies(s, width: width) else { return 0 }
+        return max(1, (width - 2) / (gridTileWidth + 2))
+    }
+
+    static func drawGrid(_ c: inout Canvas, _ r: Rect, _ s: AppState, _ m: ScreenModel, selectedIndex: Int, focused: Bool) {
+        let t = s.theme
+        let columns = max(1, (r.width - 2) / (gridTileWidth + 2))
+        // Matches AppStore.adjustScroll (listHeight = this height - 1).
+        let visibleRows = max(1, (r.height - 1) / gridTileHeight)
+        let topRow = s.scroll[.albums] ?? 0
+        if m.rows.isEmpty {
+            if !s.loading.contains(.albums) { c.text(m.empty, x: r.x + 2, y: r.y + 1, style: t.secondary) }
+            return
+        }
+        for (index, row) in m.rows.enumerated() {
+            let gridRow = index / columns
+            guard gridRow >= topRow, gridRow < topRow + visibleRows, case .album(let album) = row.kind else { continue }
+            let x = r.x + 2 + (index % columns) * (gridTileWidth + 2)
+            let y = r.y + (gridRow - topRow) * gridTileHeight
+            let selected = index == selectedIndex
+            if selected {
+                let frame = Rect(x: x - 1, y: y, width: gridTileWidth + 2, height: gridTileHeight - 1)
+                c.paint(frame, style: t.selection(focused: focused))
+            }
+            Artwork.draw(&c, Rect(x: x, y: y, width: gridTileWidth, height: gridArtHeight),
+                         path: album.artwork?.path, seed: album.title, theme: t, art: s.art)
+            let playing = s.playback.track?.albumID == album.id
+            c.text((playing ? "▶ " : "") + album.title, x: x, y: y + gridArtHeight, maxWidth: gridTileWidth,
+                   style: Style(fg: playing ? t.accentPink : t.text, bold: selected))
+            c.text(album.artist, x: x, y: y + gridArtHeight + 1, maxWidth: gridTileWidth, style: t.secondary)
+        }
+        // Scroll position
+        let totalRows = (m.rows.count + columns - 1) / columns
+        if totalRows > visibleRows {
+            c.text("\(topRow + 1)–\(min(totalRows, topRow + visibleRows)) of \(totalRows) rows",
+                   x: r.maxX - 22, y: r.maxY, maxWidth: 22, style: t.dimmed)
+        }
+    }
+
     static func drawRow(_ c: inout Canvas, _ row: Row, x: Int, y: Int, width: Int, columns: [Column], cellIndices: [Int], widths: [Int],
                         selected: Bool, focused: Bool, playing: Bool, theme t: Theme) {
         if case .header(let title) = row.kind {
@@ -285,7 +350,7 @@ public enum ShellView {
         }
         let artSize = min(area.width - 2, 16)
         let art = Rect(x: area.x + 1, y: area.y, width: artSize, height: artSize / 2)
-        ArtworkPlaceholder.draw(&c, art, seed: track.album, theme: t)
+        Artwork.draw(&c, art, path: track.artwork?.path, seed: track.album, theme: t, art: s.art)
         var y = art.maxY + 1
         c.text(track.title, x: area.x + 1, y: y, maxWidth: area.width - 1, style: Style(fg: t.text, bold: true)); y += 1
         c.text(track.artist, x: area.x + 1, y: y, maxWidth: area.width - 1, style: Style(fg: t.accent)); y += 1
@@ -333,7 +398,7 @@ public enum ShellView {
 
         if body.height >= 3 {
             let art = Rect(x: body.x + 2, y: body.y, width: 6, height: 3)
-            ArtworkPlaceholder.draw(&c, art, seed: track.album, theme: t)
+            Artwork.draw(&c, art, path: track.artwork?.path, seed: track.album, theme: t, art: s.art)
             let tx = art.maxX + 2
             let infoWidth = max(10, min(36, body.width / 3))
             c.text(track.title, x: tx, y: body.y, maxWidth: infoWidth, style: Style(fg: t.text, bold: true))

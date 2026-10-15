@@ -38,7 +38,7 @@ public struct Cell: Equatable, Sendable {
     public var continuation = false
 }
 
-public struct Rect: Equatable, Sendable {
+public struct Rect: Hashable, Sendable {
     public var x: Int, y: Int, width: Int, height: Int
     public init(x: Int, y: Int, width: Int, height: Int) {
         self.x = x; self.y = y; self.width = max(0, width); self.height = max(0, height)
@@ -109,6 +109,10 @@ public struct Canvas: Equatable, Sendable {
     public let width: Int
     public let height: Int
     public private(set) var cells: [Cell]
+    /// Terminal-protocol images to show over this frame.
+    public var imagePlacements: [ImagePlacement] = []
+    /// Artwork the views wanted but that isn't decoded yet.
+    public var artworkRequests: Set<ArtworkKey> = []
 
     public init(width: Int, height: Int, style: Style = Style()) {
         self.width = max(0, width); self.height = max(0, height)

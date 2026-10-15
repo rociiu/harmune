@@ -18,6 +18,8 @@ public enum ColorMode: Sendable {
 public struct Renderer: Sendable {
     public var colorMode: ColorMode
     private var previous: Canvas?
+    /// Whether the last frame cleared the screen (graphics must re-place).
+    public private(set) var lastFrameWasFull = false
 
     public init(colorMode: ColorMode) { self.colorMode = colorMode }
 
@@ -28,6 +30,7 @@ public struct Renderer: Sendable {
         var out = "\u{1B}[?2026h"  // synchronized update (ignored if unsupported)
         let full = previous == nil || previous!.width != canvas.width || previous!.height != canvas.height
         if full { out += "\u{1B}[0m\u{1B}[2J" }
+        lastFrameWasFull = full
 
         var currentStyle: Style? = nil
         for y in 0..<canvas.height {
