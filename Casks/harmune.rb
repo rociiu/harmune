@@ -1,16 +1,14 @@
-# Template for a Homebrew tap. Scripts and CI don't publish this: before using
-# it, set `version`, `sha256` (from SHA256SUMS) and the GitHub repository in
-# `url` and `homepage`.
+# Template rendered by Scripts/render-cask.sh.
 cask "harmune" do
-  version "0.1.0"
-  sha256 "REPLACE_WITH_SHA256_OF_THE_ZIP"
+  version "@VERSION@"
+  sha256 "@SHA256@"
 
-  url "https://github.com/OWNER/harmune/releases/download/v#{version}/Harmune-#{version}-arm64.zip"
+  url "https://github.com/@REPOSITORY@/releases/download/v#{version}/Harmune-#{version}-arm64.zip"
   name "Harmune"
   desc "Keyboard-first Apple Music player for the terminal"
-  homepage "https://github.com/OWNER/harmune"
+  homepage "https://github.com/@REPOSITORY@"
 
-  depends_on macos: ">= :sequoia"
+  depends_on macos: :sequoia
   depends_on arch: :arm64
 
   app "Harmune.app"

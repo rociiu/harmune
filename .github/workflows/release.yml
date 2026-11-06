@@ -58,6 +58,27 @@ jobs:
       - name: Package
         run: Scripts/package.sh
 
+      - name: Generate and verify the Homebrew cask
+        run: |
+          Scripts/render-cask.sh "$GITHUB_REPOSITORY" "$GITHUB_REF_NAME" > build/release/harmune.rb
+          version="${GITHUB_REF_NAME#v}"
+          archive="$PWD/build/release/Harmune-$version-arm64.zip"
+          smoke="$(mktemp -d "$RUNNER_TEMP/harmune-cask.XXXXXX")"
+          # Test through a temporary tap using the archive before it is public.
+          mkdir -p "$smoke/tap/Casks"
+          sed 's|^  url .*|  url "file://'"$archive"'"|' build/release/harmune.rb > "$smoke/tap/Casks/harmune.rb"
+          git -C "$smoke/tap" init -q
+          git -C "$smoke/tap" add Casks
+          git -C "$smoke/tap" -c user.name=Harmune -c user.email=ci@example.invalid commit -qm "Test cask"
+          export HOMEBREW_NO_AUTO_UPDATE=1
+          brew tap harmune-ci/smoke "$smoke/tap"
+          brew install --cask --appdir "$smoke/Applications" harmune-ci/smoke/harmune
+          launcher="$(brew --prefix)/bin/harmune"
+          test -L "$launcher"
+          test "$launcher" -ef "$smoke/Applications/Harmune.app/Contents/Resources/bin/harmune"
+          test "$(command -v harmune)" -ef "$launcher"
+          test "$(harmune --version)" = "harmune $version"
+
       - name: Create a draft release
         env:
           GH_TOKEN: ${{ github.token }}

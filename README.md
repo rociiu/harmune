@@ -28,6 +28,17 @@ Harmune plays Apple Music from a signed host with Music.app closed, and keeps pl
 - Inside tmux, artwork uses half-blocks.
 - Kitty, iTerm2 and Sixel image output is tested by its bytes, but hasn't been checked by eye in those terminals yet.
 
+## Install with Homebrew
+
+Once the first public release and tap are available, run the following with the tap owner's GitHub name:
+
+```bash
+brew install --cask OWNER/tap/harmune
+harmune
+```
+
+Homebrew installs `Harmune.app` and links `harmune` into its bin directory. With Homebrew on your `PATH`, the command works as soon as installation finishes. On first launch, grant Apple Music access when prompted.
+
 ## Try it
 
 The demo library is fictional, so you don't need an Apple account.
