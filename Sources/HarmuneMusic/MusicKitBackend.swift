@@ -343,6 +343,9 @@ public final class MusicKitBackend: MusicBackend {
     }
 
     private func librarySearch(_ q: SearchQuery) async throws -> SearchResults {
+        guard q.offset >= 0, q.limit > 0, q.offset <= Int.max - q.limit else {
+            throw HarmuneError.invalid("Invalid search offset or limit")
+        }
         var types: [any MusicLibrarySearchable.Type] = []
         if q.kinds.contains(.songs) { types.append(MusicKit.Song.self) }
         if q.kinds.contains(.albums) { types.append(MusicKit.Album.self) }
@@ -351,9 +354,41 @@ public final class MusicKitBackend: MusicBackend {
         var request = MusicLibrarySearchRequest(term: q.text, types: types)
         request.limit = q.limit
         let r = try await request.response()
-        return SearchResults(songs: r.songs.map { map.track($0, .library) }, albums: r.albums.map { map.album($0, .library) },
-                             artists: r.artists.map { map.artist($0, .library) },
-                             playlists: r.playlists.map { map.playlist($0, .library) })
+        async let songs = Self.librarySearchPage(r.songs, query: q)
+        async let albums = Self.librarySearchPage(r.albums, query: q)
+        async let artists = Self.librarySearchPage(r.artists, query: q)
+        async let playlists = Self.librarySearchPage(r.playlists, query: q)
+        let pages = try await (songs, albums, artists, playlists)
+        let hasMore = pages.0.hasMore || pages.1.hasMore || pages.2.hasMore || pages.3.hasMore
+        return SearchResults(songs: pages.0.items.map { map.track($0, .library) },
+                             albums: pages.1.items.map { map.album($0, .library) },
+                             artists: pages.2.items.map { map.artist($0, .library) },
+                             playlists: pages.3.items.map { map.playlist($0, .library) },
+                             nextOffset: hasMore ? q.offset + q.limit : nil)
+    }
+
+    /// Library search exposes batch cursors on each result collection, rather
+    /// than an offset on the request. Advance each category independently.
+    private nonisolated static func librarySearchPage<Item: MusicItem & Sendable>(
+        _ first: MusicItemCollection<Item>, query: SearchQuery
+    ) async throws -> (items: [Item], hasMore: Bool) {
+        var batch = first
+        var skip = query.offset
+        var items: [Item] = []
+        while true {
+            try Task.checkCancellation()
+            let remaining = query.limit - items.count
+            items.append(contentsOf: batch.dropFirst(skip).prefix(remaining))
+            if items.count == query.limit {
+                let consumed = skip + remaining
+                return (items, consumed < batch.count || batch.hasNextBatch)
+            }
+            skip = max(0, skip - batch.count)
+            guard batch.hasNextBatch, let next = try await batch.nextBatch(limit: query.limit), !next.isEmpty else {
+                return (items, false)
+            }
+            batch = next
+        }
     }
 
     private func page<T: Codable & Sendable & Hashable>(_ items: [T], offset: Int, limit: Int) -> Page<T> {

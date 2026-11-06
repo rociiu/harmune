@@ -490,19 +490,21 @@ public final class AppStore {
                 return .playlists(items + page.items, nextOffset: page.nextOffset)
             }
         case .search(let r) where r.nextOffset != nil:
-            let query = SearchQuery(text: state.searchQuery, scope: state.searchScope, kinds: state.searchTab.kinds, offset: r.nextOffset!)
+            let text = state.searchQuery.trimmingCharacters(in: .whitespaces)
+            let query = SearchQuery(text: text, scope: state.searchScope, kinds: state.searchTab.kinds, offset: r.nextOffset!)
             state.loading.insert(route)
-            spawn { [weak self] in
-                if let more = try? await backend.search(query), self?.state.searchQuery == query.text {
-                    var merged = r
-                    merged.songs += more.songs
-                    merged.albums += more.albums
-                    merged.artists += more.artists
-                    merged.playlists += more.playlists
-                    merged.nextOffset = more.nextOffset
-                    self?.state.data[route] = .search(merged)
-                }
-                self?.state.loading.remove(route)
+            searchTask = spawn { [weak self] in
+                let more = try? await backend.search(query)
+                guard !Task.isCancelled, let self else { return }
+                defer { self.state.loading.remove(route) }
+                guard let more, self.state.data[route] == .search(r) else { return }
+                var merged = r
+                merged.songs += more.songs
+                merged.albums += more.albums
+                merged.artists += more.artists
+                merged.playlists += more.playlists
+                merged.nextOffset = more.nextOffset
+                self.state.data[route] = .search(merged)
             }
         default: break
         }
@@ -839,12 +841,12 @@ public final class AppStore {
             return
         }
         let backend = self.backend
+        state.loading.insert(.search)
         searchTask = spawn { [weak self] in
             if !immediate {
                 try? await Task.sleep(for: .milliseconds(300))
                 if Task.isCancelled { return }
             }
-            self?.state.loading.insert(.search)
             do {
                 let results = try await backend.search(query)
                 guard !Task.isCancelled, let self,
