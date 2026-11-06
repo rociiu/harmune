@@ -24,7 +24,7 @@ let application = NSApplication.shared
 application.setActivationPolicy(.accessory)
 
 let backend = MusicKitBackend()
-let server = IPCServer(socketPath: socketPath, backend: backend, backendName: "musickit")
+let server = IPCServer(socketPath: socketPath, backend: backend, backendName: "musickit", idleMinutes: idleMinutes)
 do {
     try server.start()
 } catch IPCError.alreadyRunning {

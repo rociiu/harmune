@@ -40,7 +40,7 @@ guard demo else {
 
 signal(SIGPIPE, SIG_IGN)
 let backend = DemoBackend()
-let server = IPCServer(socketPath: socketPath, backend: backend, backendName: "demo")
+let server = IPCServer(socketPath: socketPath, backend: backend, backendName: "demo", idleMinutes: idleMinutes)
 do {
     try server.start()
 } catch {

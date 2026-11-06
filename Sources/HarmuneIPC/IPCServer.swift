@@ -17,6 +17,8 @@ public final class IPCServer: @unchecked Sendable {
     private var acceptSource: DispatchSourceRead?
     private var sessions: [ObjectIdentifier: Session] = [:]
     private var eventTask: Task<Void, Never>?
+    private let idleTimeout: TimeInterval?
+    private var idleSince: Date?
 
     /// Called when a client asks the host to stop. Default: exit(0).
     public var onStopRequested: @Sendable () -> Void = { exit(0) }
@@ -30,10 +32,12 @@ public final class IPCServer: @unchecked Sendable {
         init(_ c: FramedConnection) { connection = c }
     }
 
-    public init(socketPath: String, backend: any MusicBackend, backendName: String) {
+    public init(socketPath: String, backend: any MusicBackend, backendName: String, idleMinutes: Double = 0) {
         self.socketPath = socketPath
         self.dispatcher = CommandDispatcher(backend: backend)
         self.backendName = backendName
+        let timeout = idleMinutes * 60
+        idleTimeout = timeout.isFinite && timeout > 0 ? timeout : nil
     }
 
     // deinit can run on `queue` (when a queued block drops the last
@@ -99,6 +103,19 @@ public final class IPCServer: @unchecked Sendable {
 
     public var clientCount: Int { queue.sync { sessions.count } }
 
+    func idleTimedOut(isPlaying: Bool) -> Bool {
+        queue.sync {
+            guard let idleTimeout, !isPlaying, sessions.isEmpty else {
+                idleSince = nil
+                return false
+            }
+            let now = Date()
+            let since = idleSince ?? now
+            idleSince = since
+            return now.timeIntervalSince(since) >= idleTimeout
+        }
+    }
+
     // MARK: - Connections
 
     private func acceptClient() {
@@ -162,9 +179,17 @@ public final class IPCServer: @unchecked Sendable {
         case Action.serviceStatus:
             Task { [self] in
                 let playing = await dispatcher.backend.playbackState().isPlaying
-                let status = ServiceStatus(pid: getpid(), hostVersion: HarmuneVersion.current, backend: backendName,
-                                           uptime: Date().timeIntervalSince(startedAt), clients: clientCount,
-                                           isPlaying: playing)
+                let status = queue.sync {
+                    let now = Date()
+                    // A status request is itself a client. Estimate the time
+                    // remaining once this caller disconnects.
+                    let idleExitIn = !playing && sessions.count == 1 ? idleTimeout.map {
+                        max(0, $0 - now.timeIntervalSince(idleSince ?? now))
+                    } : nil
+                    return ServiceStatus(pid: getpid(), hostVersion: HarmuneVersion.current, backend: backendName,
+                                         uptime: now.timeIntervalSince(startedAt), clients: sessions.count,
+                                         isPlaying: playing, idleExitIn: idleExitIn)
+                }
                 reply(key, .success(id: id, result: try? JSONValue(encoding: status)))
             }
         case Action.serviceStop:

@@ -143,9 +143,11 @@ public struct ServiceStatus: Codable, Sendable, Equatable {
     public var uptime: TimeInterval
     public var clients: Int
     public var isPlaying: Bool
-    public init(pid: Int32, hostVersion: String, backend: String, uptime: TimeInterval, clients: Int, isPlaying: Bool) {
+    public var idleExitIn: TimeInterval?
+    public init(pid: Int32, hostVersion: String, backend: String, uptime: TimeInterval, clients: Int,
+                isPlaying: Bool, idleExitIn: TimeInterval? = nil) {
         self.pid = pid; self.hostVersion = hostVersion; self.backend = backend; self.uptime = uptime
-        self.clients = clients; self.isPlaying = isPlaying
+        self.clients = clients; self.isPlaying = isPlaying; self.idleExitIn = idleExitIn
     }
 }
 

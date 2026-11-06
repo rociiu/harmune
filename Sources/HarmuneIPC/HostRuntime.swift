@@ -20,15 +20,12 @@ public enum HostRuntime {
         }
         server.onStopRequested = { server.stop(); exit(0) }
 
-        guard idleMinutes > 0 else { return }
+        guard idleMinutes.isFinite, idleMinutes > 0 else { return }
         Task {
-            var idleSince: Date?
             while true {
                 try? await Task.sleep(for: .seconds(15))
                 let playing = await backend.playbackState().isPlaying
-                let idle = !playing && server.clientCount == 0
-                if !idle { idleSince = nil } else if idleSince == nil { idleSince = Date() }
-                if let since = idleSince, Date().timeIntervalSince(since) >= idleMinutes * 60 {
+                if server.idleTimedOut(isPlaying: playing) {
                     log("idle for \(Int(idleMinutes)) min, exiting")
                     server.stop()
                     exit(0)

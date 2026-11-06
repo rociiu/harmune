@@ -460,6 +460,9 @@ func service(_ sub: String, args: Args, socket: String) async throws {
           playing   \(s.isPlaying ? "yes" : "no")
           socket    \(socket)
         """)
+        if let idleExitIn = s.idleExitIn {
+            print("  idle exit about \(Format.time(idleExitIn)) after disconnecting, if the host stays idle")
+        }
         if s.hostVersion != HarmuneVersion.current {
             print("\nThe host is version \(s.hostVersion), but this CLI is \(HarmuneVersion.current). Restart it: harmune service stop")
         }
