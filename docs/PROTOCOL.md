@@ -75,7 +75,7 @@ The result has `protocolVersion`, `hostVersion` and `capabilities`. To receive e
 
 The types are in `Sources/HarmuneCore/Models.swift` and `Sources/HarmuneIPC/Envelope.swift`.
 
-**IDs** are tagged with their source: `c:` for the catalog and `l:` for the library. Treat them as opaque.
+**IDs** are tagged with their source: `c:` for the catalog and `l:` for the library. Treat them as opaque. MusicKit can reissue queue entry IDs after an edit. Read the updated queue before sending another command that refers to an entry.
 
 ## Events
 

@@ -304,6 +304,9 @@ public final class MusicKitBackend: MusicBackend {
             for id in songIDs { songs.append(try await song(id)) }
             if player.queue.entries.isEmpty {
                 player.queue = ApplicationMusicPlayer.Queue(for: songs)
+                // Materialize the queue so it can be inspected and edited
+                // before the user starts playback.
+                try await player.prepareToPlay()
             } else {
                 try await player.queue.insert(songs, position: position == .next ? .afterCurrentEntry : .tail)
             }
