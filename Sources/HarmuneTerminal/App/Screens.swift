@@ -175,14 +175,14 @@ public func screen(for route: Route, in s: AppState) -> ScreenModel {
 
     case .artists:
         var rows: [Row] = []
-        if case .artists(let artists) = data { rows = artists.map { Row(kind: .artist($0), cells: [$0.name]) } }
+        if case .artists(let artists, _) = data { rows = artists.map { Row(kind: .artist($0), cells: [$0.name]) } }
         model = ScreenModel(breadcrumb: "Library / Artists", columns: [.flex("ARTIST")], rows: rows, header: nil,
                             empty: "No artists in your library.", hints: "Enter open   F filter",
                             footer: rows.isEmpty ? nil : "\(rows.count) artists")
 
     case .playlists:
         var rows: [Row] = []
-        if case .playlists(let p) = data {
+        if case .playlists(let p, _) = data {
             rows = p.map { Row(kind: .playlist($0), cells: [$0.name, $0.curator ?? "", $0.trackCount > 0 ? "\($0.trackCount)" : ""]) }
         }
         model = ScreenModel(breadcrumb: "Library / Playlists",

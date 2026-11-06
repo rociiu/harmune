@@ -423,8 +423,14 @@ public final class AppStore {
         case .home: fetcher = { .home(try await $0.home()) }
         case .songs: fetcher = { b in let p = try await b.librarySongs(sort: sort, offset: 0, limit: 200); return .tracks(p.items, nextOffset: p.nextOffset) }
         case .albums: fetcher = { b in let p = try await b.libraryAlbums(sort: sort, offset: 0, limit: 200); return .albums(p.items, nextOffset: p.nextOffset) }
-        case .artists: fetcher = { .artists(try await $0.libraryArtists(offset: 0, limit: 200).items) }
-        case .playlists: fetcher = { .playlists(try await $0.libraryPlaylists(offset: 0, limit: 200).items) }
+        case .artists: fetcher = { b in
+            let page = try await b.libraryArtists(offset: 0, limit: 200)
+            return .artists(page.items, nextOffset: page.nextOffset)
+        }
+        case .playlists: fetcher = { b in
+            let page = try await b.libraryPlaylists(offset: 0, limit: 200)
+            return .playlists(page.items, nextOffset: page.nextOffset)
+        }
         case .album(let id): fetcher = { .albumDetail(try await $0.album(id: id)) }
         case .playlist(let id): fetcher = { .playlistDetail(try await $0.playlist(id: id)) }
         case .artist(let id): fetcher = { .artistDetail(try await $0.artist(id: id)) }
@@ -464,20 +470,24 @@ public final class AppStore {
         let sort = state.sort[route] ?? .title
         switch state.data[route] {
         case .tracks(let items, let next?):
-            state.loading.insert(route)
-            spawn { [weak self] in
-                if let p = try? await backend.librarySongs(sort: sort, offset: next, limit: 200) {
-                    self?.state.data[route] = .tracks(items + p.items, nextOffset: p.nextOffset)
-                }
-                self?.state.loading.remove(route)
+            loadLibraryPage(for: route) {
+                let page = try await backend.librarySongs(sort: sort, offset: next, limit: 200)
+                return .tracks(items + page.items, nextOffset: page.nextOffset)
             }
         case .albums(let items, let next?):
-            state.loading.insert(route)
-            spawn { [weak self] in
-                if let p = try? await backend.libraryAlbums(sort: sort, offset: next, limit: 200) {
-                    self?.state.data[route] = .albums(items + p.items, nextOffset: p.nextOffset)
-                }
-                self?.state.loading.remove(route)
+            loadLibraryPage(for: route) {
+                let page = try await backend.libraryAlbums(sort: sort, offset: next, limit: 200)
+                return .albums(items + page.items, nextOffset: page.nextOffset)
+            }
+        case .artists(let items, let next?):
+            loadLibraryPage(for: route) {
+                let page = try await backend.libraryArtists(offset: next, limit: 200)
+                return .artists(items + page.items, nextOffset: page.nextOffset)
+            }
+        case .playlists(let items, let next?):
+            loadLibraryPage(for: route) {
+                let page = try await backend.libraryPlaylists(offset: next, limit: 200)
+                return .playlists(items + page.items, nextOffset: page.nextOffset)
             }
         case .search(let r) where r.nextOffset != nil:
             let query = SearchQuery(text: state.searchQuery, scope: state.searchScope, kinds: state.searchTab.kinds, offset: r.nextOffset!)
@@ -495,6 +505,19 @@ public final class AppStore {
                 self?.state.loading.remove(route)
             }
         default: break
+        }
+    }
+
+    private func loadLibraryPage(for route: Route, fetch: @escaping @Sendable () async throws -> RouteData) {
+        let previous = state.data[route]
+        state.loading.insert(route)
+        spawn { [weak self] in
+            guard let updated = try? await fetch(), let self else {
+                self?.state.loading.remove(route)
+                return
+            }
+            if self.state.data[route] == previous { self.state.data[route] = updated }
+            self.state.loading.remove(route)
         }
     }
 

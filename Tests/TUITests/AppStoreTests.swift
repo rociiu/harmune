@@ -202,6 +202,24 @@ func type(_ store: AppStore, _ text: String) async {
         #expect(quit == .user)
     }
 
+    @Test(arguments: [Route.artists, .playlists])
+    func artistAndPlaylistListsLoadNextPage(_ route: Route) async {
+        let backend = GatedBackend(pagedLibrary: true)
+        _ = await backend.requestAuthorization()
+        let store = AppStore(backend: backend, startRoute: route)
+        await store.start()
+        await store.settle()
+        #expect(screen(for: route, in: store.state).rows.count == 200)
+
+        await press(store, "G")
+        #expect(screen(for: route, in: store.state).rows.count == 201)
+        #expect(store.selectedIndex == 199)
+
+        await press(store, "G")
+        #expect(screen(for: route, in: store.state).rows.count == 201)
+        #expect(store.selectedIndex == 200)
+    }
+
     @Test func viewSwitcherFocus() async {
         let store = await makeStore()
         await press(store, "<tab>")
@@ -512,6 +530,10 @@ func type(_ store: AppStore, _ text: String) async {
 actor GatedBackend: MusicBackend {
     private let demo = DemoBackend(autoTick: false)
     private var status = AuthStatus(state: .notDetermined)
+    private let pagedLibrary: Bool
+
+    init(pagedLibrary: Bool = false) { self.pagedLibrary = pagedLibrary }
+
     func capabilities() async -> Set<Capability> { await demo.capabilities() }
     func authStatus() async -> AuthStatus { status }
     func requestAuthorization() async -> AuthStatus {
@@ -533,8 +555,18 @@ actor GatedBackend: MusicBackend {
     func search(_ query: SearchQuery) async throws -> SearchResults { try await demo.search(query) }
     func librarySongs(sort: SortKey, offset: Int, limit: Int) async throws -> Page<Track> { try await demo.librarySongs(sort: sort, offset: offset, limit: limit) }
     func libraryAlbums(sort: SortKey, offset: Int, limit: Int) async throws -> Page<Album> { try await demo.libraryAlbums(sort: sort, offset: offset, limit: limit) }
-    func libraryArtists(offset: Int, limit: Int) async throws -> Page<Artist> { try await demo.libraryArtists(offset: offset, limit: limit) }
-    func libraryPlaylists(offset: Int, limit: Int) async throws -> Page<Playlist> { try await demo.libraryPlaylists(offset: offset, limit: limit) }
+    func libraryArtists(offset: Int, limit: Int) async throws -> Page<Artist> {
+        guard pagedLibrary else { return try await demo.libraryArtists(offset: offset, limit: limit) }
+        let end = min(201, offset + limit)
+        let items = (offset..<end).map { Artist(id: "a\($0)", name: "Artist \($0)") }
+        return Page(items: items, nextOffset: end < 201 ? end : nil)
+    }
+    func libraryPlaylists(offset: Int, limit: Int) async throws -> Page<Playlist> {
+        guard pagedLibrary else { return try await demo.libraryPlaylists(offset: offset, limit: limit) }
+        let end = min(201, offset + limit)
+        let items = (offset..<end).map { Playlist(id: "p\($0)", name: "Playlist \($0)", trackCount: 0) }
+        return Page(items: items, nextOffset: end < 201 ? end : nil)
+    }
     func album(id: String) async throws -> AlbumDetail { try await demo.album(id: id) }
     func artist(id: String) async throws -> ArtistDetail { try await demo.artist(id: id) }
     func playlist(id: String) async throws -> PlaylistDetail { try await demo.playlist(id: id) }

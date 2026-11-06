@@ -200,8 +200,8 @@ public struct DetailHeader: Sendable, Equatable {
 public enum RouteData: Sendable, Equatable {
     case tracks([Track], nextOffset: Int?)
     case albums([Album], nextOffset: Int?)
-    case artists([Artist])
-    case playlists([Playlist])
+    case artists([Artist], nextOffset: Int?)
+    case playlists([Playlist], nextOffset: Int?)
     case albumDetail(AlbumDetail)
     case playlistDetail(PlaylistDetail)
     case artistDetail(ArtistDetail)
