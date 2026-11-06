@@ -80,7 +80,8 @@ public enum ShellView {
 
         let notice: (String, Style)? = switch s.connection {
         case .connected: nil
-        case .reconnecting: ("reconnecting…", Style(fg: t.warning))
+        case .reconnecting:
+            (s.reconnectSeconds.map { "retry in \($0)s" } ?? "reconnecting…", Style(fg: t.warning))
         case .offline: ("host offline", Style(fg: t.error))
         }
         let available = r.width - 14

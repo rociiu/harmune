@@ -88,15 +88,16 @@ public final class AppStore {
     /// Called by the run loop on a timer. Returns true when a redraw is due.
     @discardableResult
     public func tick() -> Bool {
+        let reconnectSeconds = state.reconnectSeconds
         state.now = clock()
-        var dirty = false
+        var dirty = reconnectSeconds != state.reconnectSeconds
         if let toast = state.toast, toast.expires <= state.now { state.toast = nil; dirty = true }
         if let resolution = resolver.expire(context: keyContext, at: state.now) {
             state.pendingKeys = ""
             if case .command(let c, let n) = resolution { perform(c, count: n) }
             dirty = true
         }
-        return dirty || state.playback.isPlaying
+        return dirty
     }
 
     private func refreshSession() async {
@@ -171,7 +172,11 @@ public final class AppStore {
                 toast("Reconnected to the Harmune host")
                 return
             }
+            state.now = clock()
+            state.nextReconnectAt = state.now.addingTimeInterval(delay)
+            changed()
             try? await Task.sleep(for: .seconds(delay))
+            state.nextReconnectAt = nil
             delay = min(delay * 2, 4)
         }
     }

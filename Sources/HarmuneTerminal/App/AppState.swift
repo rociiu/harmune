@@ -245,6 +245,11 @@ public struct AppState: Sendable {
     public var auth = AuthStatus(state: .authorized)
     public var capabilities: Set<Capability> = []
     public var connection = ConnectionState.connected
+    var nextReconnectAt: Date?
+    var reconnectSeconds: Int? {
+        guard connection == .reconnecting, let nextReconnectAt, nextReconnectAt > now else { return nil }
+        return Int(nextReconnectAt.timeIntervalSince(now).rounded(.up))
+    }
 
     // Navigation
     public var stack: [Route] = [.home]
