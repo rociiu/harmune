@@ -31,7 +31,7 @@ QUEUE
   queue add <song-id>... [--next] The same
 
 BROWSE
-  search <query> [--library] [--json]
+  search <query> [--library] [--type songs|albums|artists|playlists] [--json]
   library songs|albums|artists|playlists [--json]
   album <id> | playlist <id> | artist <id>
 
@@ -64,7 +64,7 @@ struct Args {
     var positional: [String] = []
     var flags: Set<String> = []
     var options: [String: String] = [:]
-    static let valued: Set<String> = ["--socket", "--album", "--playlist", "--track", "--theme", "--config", "--search"]
+    static let valued: Set<String> = ["--socket", "--album", "--playlist", "--track", "--theme", "--config", "--search", "--type"]
 
     init(_ raw: ArraySlice<String>) {
         var it = raw.makeIterator()
@@ -139,6 +139,25 @@ func run() async throws {
     }
     if command == "cache" {
         try cacheCommand(try args.next("path|size|clear"), args: args)
+        return
+    }
+
+    if command == "search" {
+        let text = args.positional.joined(separator: " ")
+        guard !text.isEmpty else { throw CLIError("search expects a query", code: 64) }
+        let kinds: [MediaKind]
+        if let raw = args.options["--type"] {
+            guard let kind = MediaKind(rawValue: raw) else {
+                throw CLIError("search --type expects songs|albums|artists|playlists", code: 64)
+            }
+            kinds = [kind]
+        } else {
+            kinds = MediaKind.allCases
+        }
+        let backend = try await HostLauncher.connect(socketPath: socket, autoStart: true)
+        let query = SearchQuery(text: text, scope: args.flags.contains("--library") ? .library : .catalog, kinds: kinds)
+        let result = try await backend.search(query)
+        print(json ? Format.json(result) : Format.search(result))
         return
     }
 
@@ -228,12 +247,6 @@ func run() async throws {
         guard !args.positional.isEmpty else { throw CLIError("add expects one or more song ids", code: 64) }
         try await backend.enqueue(songIDs: args.positional, at: args.flags.contains("--next") ? .next : .last)
         print("Added \(args.positional.count) song(s)")
-
-    case "search":
-        let text = args.positional.joined(separator: " ")
-        guard !text.isEmpty else { throw CLIError("search expects a query", code: 64) }
-        let r = try await backend.search(SearchQuery(text: text, scope: args.flags.contains("--library") ? .library : .catalog))
-        print(json ? Format.json(r) : Format.search(r))
 
     case "library":
         switch try args.next("songs|albums|artists|playlists") {
