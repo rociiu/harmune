@@ -12,7 +12,6 @@ First version with a real Apple Music host.
 
 ### Known limitations
 
-- Queue removal, reordering and clearing are off on Apple Music until they've been tested.
 - Favorites aren't supported.
 - The visualizer is decorative: MusicKit doesn't expose audio.
 - No volume control: MusicKit has no API for it on macOS.

@@ -29,6 +29,9 @@ QUEUE
   queue [--json]                  Show the queue
   add <song-id>... [--next]       Add songs to the end (or play next)
   queue add <song-id>... [--next] The same
+  queue remove <entry-id>        Remove a queue entry
+  queue move <entry-id> <n>      Move an upcoming entry to queue position n (1-based)
+  queue clear                    Clear upcoming entries
 
 BROWSE
   search <query> [--library] [--type songs|albums|artists|playlists] [--json]
@@ -233,15 +236,31 @@ func run() async throws {
         }
         try await backend.setRepeat(mode)
 
-    case "queue" where args.positional.first == "add":
-        args.positional.removeFirst()
-        guard !args.positional.isEmpty else { throw CLIError("queue add expects one or more song ids", code: 64) }
-        try await backend.enqueue(songIDs: args.positional, at: args.flags.contains("--next") ? .next : .last)
-        print("Added \(args.positional.count) song(s)")
-
     case "queue":
-        let q = await backend.queueState()
-        print(json ? Format.json(q) : Format.queue(q))
+        switch args.positional.first {
+        case nil:
+            let queue = await backend.queueState()
+            print(json ? Format.json(queue) : Format.queue(queue))
+        case "add":
+            args.positional.removeFirst()
+            guard !args.positional.isEmpty else { throw CLIError("queue add expects one or more song ids", code: 64) }
+            try await backend.enqueue(songIDs: args.positional, at: args.flags.contains("--next") ? .next : .last)
+            print("Added \(args.positional.count) song(s)")
+        case "remove":
+            args.positional.removeFirst()
+            try await backend.removeFromQueue(entryID: try args.next("queue entry ID"))
+        case "move":
+            args.positional.removeFirst()
+            let entryID = try args.next("queue entry ID")
+            guard let position = Int(try args.next("destination position")), position > 0 else {
+                throw CLIError("queue move expects a positive queue position", code: 64)
+            }
+            try await backend.moveQueueEntry(entryID: entryID, to: position - 1)
+        case "clear":
+            try await backend.clearUpcoming()
+        default:
+            throw CLIError("queue expects add|remove|move|clear", code: 64)
+        }
 
     case "add":
         guard !args.positional.isEmpty else { throw CLIError("add expects one or more song ids", code: 64) }

@@ -4,7 +4,7 @@ enum Completions {
                            "queue", "add", "search", "library", "album", "playlist", "artist", "service", "auth",
                            "config", "keys", "completions", "cache", "help"]
     static let subcommands: [(String, [String])] = [
-        ("shuffle", ["on", "off"]), ("repeat", ["off", "one", "all"]), ("queue", ["add"]),
+        ("shuffle", ["on", "off"]), ("repeat", ["off", "one", "all"]), ("queue", ["add", "remove", "move", "clear"]),
         ("library", ["songs", "albums", "artists", "playlists"]), ("service", ["status", "start", "stop"]),
         ("auth", ["status"]), ("config", ["path", "check"]), ("completions", ["zsh", "bash", "fish"]),
         ("cache", ["path", "size", "clear"]),

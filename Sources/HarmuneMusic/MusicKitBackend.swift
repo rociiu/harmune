@@ -46,10 +46,8 @@ public final class MusicKitBackend: MusicBackend {
 
     // MARK: - Session
 
-    /// Queue removal and reordering stay off until Phase 0 check V11 shows
-    /// they work. Favorites have no MusicKit API in this backend yet.
     public func capabilities() -> Set<Capability> {
-        [.recommendations, .recentlyPlayed, .librarySearch]
+        [.recommendations, .recentlyPlayed, .librarySearch, .queueRemove, .queueMove]
     }
 
     public func authStatus() async -> AuthStatus {
@@ -313,9 +311,53 @@ public final class MusicKitBackend: MusicBackend {
         }
     }
 
-    public func removeFromQueue(entryID: String) async throws { throw HarmuneError.unsupported("Removing from the queue") }
-    public func moveQueueEntry(entryID: String, to index: Int) async throws { throw HarmuneError.unsupported("Reordering the queue") }
-    public func clearUpcoming() async throws { throw HarmuneError.unsupported("Clearing the queue") }
+    public func removeFromQueue(entryID: String) async throws {
+        try await call("queue remove") {
+            let queue = player.queue
+            var entries = queue.entries
+            guard let index = entries.firstIndex(where: { $0.id == entryID }) else {
+                throw HarmuneError.notFound("Queue entry \(entryID)")
+            }
+            guard entryID != queue.currentEntry?.id else {
+                throw HarmuneError.invalid("Cannot remove the playing entry")
+            }
+            entries.remove(at: index)
+            queue.entries = entries
+            changed()
+        }
+    }
+
+    public func moveQueueEntry(entryID: String, to target: Int) async throws {
+        try await call("queue move") {
+            let queue = player.queue
+            var entries = queue.entries
+            guard let from = entries.firstIndex(where: { $0.id == entryID }) else {
+                throw HarmuneError.notFound("Queue entry \(entryID)")
+            }
+            let current = queue.currentEntry.flatMap { entry in entries.firstIndex { $0.id == entry.id } } ?? -1
+            guard from > current, target > current, entries.indices.contains(target) else {
+                throw HarmuneError.invalid("Only upcoming entries can be moved")
+            }
+            guard from != target else { return }
+            let entry = entries.remove(at: from)
+            entries.insert(entry, at: target)
+            queue.entries = entries
+            changed()
+        }
+    }
+
+    public func clearUpcoming() async throws {
+        try await call("queue clear") {
+            let queue = player.queue
+            var entries = queue.entries
+            let current = queue.currentEntry.flatMap { entry in entries.firstIndex { $0.id == entry.id } }
+            let firstUpcoming = current.map { entries.index(after: $0) } ?? entries.startIndex
+            guard firstUpcoming < entries.endIndex else { return }
+            entries.removeSubrange(firstUpcoming..<entries.endIndex)
+            queue.entries = entries
+            changed()
+        }
+    }
 
     // MARK: - Browse
 

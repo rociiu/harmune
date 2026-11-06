@@ -22,7 +22,6 @@ Harmune plays Apple Music from a signed host with Music.app closed, and keeps pl
 
 **Known limitations**
 
-- Removing, reordering and clearing the queue are off on Apple Music until they've been tested. Adding works.
 - Favorites aren't supported.
 - The visualizer is decorative, because MusicKit doesn't expose audio.
 - There's no volume control, because MusicKit has no API for it on macOS.
