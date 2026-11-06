@@ -117,7 +117,7 @@ SwiftTUI currently supports declarative views, animations, terminal capability d
 >
 > All image output goes through Harmune's own `TerminalGraphics` module, never through the framework directly. Views are built from a small Harmune component layer, so switching to another framework stays a bounded job.
 
-> **Revision 1.1 — Host signing.** The host is a **non-sandboxed, Developer ID–signed, hardened-runtime, notarized** app with the `com.apple.developer.musickit` entitlement. People have reported `ApplicationMusicPlayer` playback failing with permission errors in sandboxed macOS apps. `SystemMusicPlayer` is unavailable on macOS.
+> **Revision 1.1 — Host signing.** The host is a **non-sandboxed, Developer ID–signed, hardened-runtime, notarized** app whose App ID has the **MusicKit App Service** enabled. MusicKit has no entitlement of its own; whether the app also needs an embedded provisioning profile is being tested in Phase 0. People have reported `ApplicationMusicPlayer` playback failing with permission errors in sandboxed macOS apps. `SystemMusicPlayer` is unavailable on macOS.
 
 ## 2.2 Supported Terminals
 

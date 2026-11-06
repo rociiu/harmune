@@ -23,8 +23,11 @@ let package = Package(
         .target(name: "HarmuneConfig"),
         .executableTarget(name: "harmune", dependencies: ["HarmuneCore", "HarmuneIPC", "HarmuneDemo", "HarmuneTerminal", "HarmuneConfig"]),
         // Development host serving DemoBackend over the socket.
-        // The real MusicKit host is a signed app bundle (Apps/HarmuneHost).
         .executableTarget(name: "harmune-host", dependencies: ["HarmuneCore", "HarmuneIPC", "HarmuneDemo"]),
+        // MusicKitBackend. Linked only by the app host.
+        .target(name: "HarmuneMusic", dependencies: ["HarmuneCore"]),
+        // The executable inside Harmune.app (see Scripts/build-host.sh).
+        .executableTarget(name: "HarmuneHostApp", dependencies: ["HarmuneCore", "HarmuneIPC", "HarmuneMusic"]),
 
         .testTarget(name: "CoreTests", dependencies: ["HarmuneCore"]),
         .testTarget(name: "IPCTests", dependencies: ["HarmuneIPC", "HarmuneDemo"]),
@@ -32,5 +35,6 @@ let package = Package(
         .testTarget(name: "KeymapTests", dependencies: ["HarmuneTerminal"]),
         .testTarget(name: "TUITests", dependencies: ["HarmuneTerminal", "HarmuneDemo"]),
         .testTarget(name: "ConfigTests", dependencies: ["HarmuneConfig", "HarmuneTerminal"]),
+        .testTarget(name: "MusicTests", dependencies: ["HarmuneMusic", "HarmuneCore"]),
     ]
 )

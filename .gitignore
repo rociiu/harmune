@@ -3,3 +3,4 @@
 *.xcodeproj/xcuserdata/
 Config/Local.xcconfig
 .DS_Store
+build/

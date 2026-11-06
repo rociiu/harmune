@@ -44,7 +44,7 @@ public func screen(for route: Route, in s: AppState) -> ScreenModel {
             }
             if !h.madeForYou.isEmpty {
                 rows.append(Row(kind: .header("MADE FOR YOU"), cells: []))
-                rows += h.madeForYou.map { Row(kind: .playlist($0), cells: [$0.name, $0.curator ?? "", "\($0.trackCount) songs"]) }
+                rows += h.madeForYou.map { Row(kind: .playlist($0), cells: [$0.name, $0.curator ?? "", $0.trackCount > 0 ? "\($0.trackCount) songs" : ""]) }
             }
             if !h.favoriteAlbums.isEmpty {
                 rows.append(Row(kind: .header("FAVORITE ALBUMS"), cells: []))
@@ -111,7 +111,7 @@ public func screen(for route: Route, in s: AppState) -> ScreenModel {
     case .playlists:
         var rows: [Row] = []
         if case .playlists(let p) = data {
-            rows = p.map { Row(kind: .playlist($0), cells: [$0.name, $0.curator ?? "", "\($0.trackCount)"]) }
+            rows = p.map { Row(kind: .playlist($0), cells: [$0.name, $0.curator ?? "", $0.trackCount > 0 ? "\($0.trackCount)" : ""]) }
         }
         model = ScreenModel(breadcrumb: "Library / Playlists",
                             columns: [.flex("PLAYLIST", 3), .flex("CURATOR", 2, minContent: 50), .fixed("SONGS", 7, right: true)],

@@ -19,11 +19,14 @@ Phase 1 MVP slices (plan M1.1–M1.6, running on the demo backend):
 | `HarmuneConfig` | `config.toml` parsing and validation with line-numbered warnings; custom keybindings |
 | `harmune` | Launches the TUI with no arguments, plus CLI subcommands for playback, queue, search, library and `service` management. Auto-starts the host detached from the terminal |
 | `harmune-host` | Development host that serves `DemoBackend` over the socket |
+| `HarmuneMusic`, `HarmuneHostApp` | `MusicKitBackend` and the host app that serves it, packaged as `build/Harmune.app`. Plays Apple Music with Music.app closed |
 
+**Phase 0 status:** playback works from an Apple Development build with no provisioning profile ([results](docs/PHASE0_RESULTS.md), [how to run the checks](docs/PHASE0_SETUP.md)). Still to check: music surviving a closed terminal window, the TUI against Apple Music, and a notarized Developer ID build.
 Not built yet:
 - iTerm2 and Sixel image protocols, tmux passthrough, and querying the terminal for graphics support (detection is by terminal name; `HARMUNE_GRAPHICS=kitty|halfblock|none` overrides it)
 - sorting, favorites, and themes beyond `harmune-midnight` and `mono`
-- the signed MusicKit host app (Phase 0 needs an Apple Developer account)
+- queue removal and reordering on the MusicKit backend (off until Phase 0 check V11 shows they work)
+- an authorization flow in the TUI (use `harmune auth`)
 
 **UI framework decision:** instead of the beta SwiftTUI, Harmune uses a small renderer of its own, the fallback in the plan's Phase 0. Views only draw into a `Canvas`, so this can be revisited later.
 

@@ -31,7 +31,7 @@
 - Some existing CLI tools embed a bundle ID and the MusicKit entitlement in a bare binary. It is unclear whether their audio actually renders in-process or is routed through Music.app.
 
 **Revision:**
-- The host is a **non-sandboxed, Developer ID–signed, hardened-runtime, notarized** `.app` with the `com.apple.developer.musickit` entitlement.
+- The host is a **non-sandboxed, Developer ID–signed, hardened-runtime, notarized** `.app` whose App ID has the MusicKit App Service enabled. (Corrected: this review first called for a `com.apple.developer.musickit` entitlement, which doesn't exist. Apple DTS called the similar `com.apple.developer.music-kit` made up in the forum thread cited below.)
 - Phase 0 must explicitly prove all of the following:
   - (a) audio renders with **Music.app not running, and Music.app is not auto-launched** (check with `pgrep Music`)
   - (b) it works in a Developer ID build, not only a debug build

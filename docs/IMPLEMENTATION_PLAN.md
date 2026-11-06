@@ -4,6 +4,12 @@
 **Team assumption:** 1–2 engineers. Estimates are for one experienced Swift engineer, in focused weeks.
 **Total to 1.0:** ~20–24 weeks. Phase 0 is a hard go/no-go gate.
 
+> **What changed during implementation.** The checkboxes below are the original plan and aren't kept up to date; see the README for status.
+> - **UI:** a small custom renderer, not SwiftTUI, and no third-party dependencies (no ArgumentParser or TOMLKit).
+> - **Order:** the UI was built on the demo backend before Phase 0, so the gate is still open. See `docs/PHASE0_SETUP.md`.
+> - **Host:** an SPM executable that `Scripts/build-host.sh` assembles and signs into `build/Harmune.app`, not an Xcode project. This keeps signing explicit, including whether a profile is embedded.
+> - **MusicKit access:** comes from the App Service on the App ID. The `com.apple.developer.musickit` entitlement in §0.1 and §1 doesn't exist.
+
 ---
 
 ## 0. Guiding decisions
@@ -118,7 +124,7 @@ The TUI talks to a `MusicBackend`. In normal mode that is `RemoteBackend` (an IP
 **Goal:** prove independent playback, the host lifecycle and the UI framework, before building product.
 
 ### 0.1 Apple setup (day 1)
-- [ ] Register App ID `dev.harmune.host` with the **MusicKit** App Service. Create a Developer ID Application certificate.
+- [ ] Register App ID `com.orinbyte.harmune` with the **MusicKit** App Service. Create a Developer ID Application certificate.
 - [ ] Xcode project `HarmuneHost`:
   - macOS 15 target
   - `LSUIElement = YES`

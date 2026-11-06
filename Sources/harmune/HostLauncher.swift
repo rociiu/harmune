@@ -41,9 +41,12 @@ enum HostLauncher {
         case .app(let url):
             let p = Process()
             p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-            p.arguments = ["-g", "-j", "-a", url.path]
+            p.arguments = ["-g", "-j", "-a", url.path, "--args", "--socket", socketPath]
             try p.run()
             p.waitUntilExit()
+            guard p.terminationStatus == 0 else {
+                throw HarmuneError(.unavailable, "Couldn't open \(url.path) (open exited with \(p.terminationStatus))", recoverable: false)
+            }
         case .devHost(let url):
             try spawnDetached(url.path, ["--demo", "--socket", socketPath])
         }

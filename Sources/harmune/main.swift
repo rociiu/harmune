@@ -35,6 +35,7 @@ BROWSE
 
 SERVICE
   service status|start|stop [--force]
+  auth [status] [--json]          Ask for Apple Music access, or show its status
 
 CONFIG
   config path                     Print the config file location
@@ -121,6 +122,19 @@ func run() async throws {
     let backend = try await HostLauncher.connect(socketPath: socket, autoStart: true)
 
     switch command {
+    case "auth":
+        let status: AuthStatus
+        switch args.positional.first {
+        case nil: status = await backend.requestAuthorization()
+        case "status": status = await backend.authStatus()
+        default: throw CLIError("auth expects no argument, or status", code: 64)
+        }
+        if json {
+            print(Format.json(status))
+        } else {
+            print("Apple Music: \(status.state.rawValue)" + (status.detail.map { " (\($0))" } ?? ""))
+        }
+
     case "status":
         if args.flags.contains("--watch") {
             for await event in await backend.events() {
@@ -198,10 +212,10 @@ func run() async throws {
             print(json ? Format.json(p) : Format.albums(p.items))
         case "artists":
             let p = try await backend.libraryArtists(offset: 0, limit: 200)
-            print(json ? Format.json(p) : p.items.map { "  \(Format.pad($0.id, 6)) \($0.name)" }.joined(separator: "\n"))
+            print(json ? Format.json(p) : p.items.map { "  \(Format.id($0.id, 6)) \($0.name)" }.joined(separator: "\n"))
         case "playlists":
             let p = try await backend.libraryPlaylists(offset: 0, limit: 200)
-            print(json ? Format.json(p) : p.items.map { "  \(Format.pad($0.id, 6)) \(Format.pad($0.name, 24)) \($0.trackCount) songs" }.joined(separator: "\n"))
+            print(json ? Format.json(p) : p.items.map { "  \(Format.id($0.id, 6)) \(Format.pad($0.name, 24)) \(Format.songCount($0.trackCount))" }.joined(separator: "\n"))
         default: throw CLIError("library expects songs|albums|artists|playlists", code: 64)
         }
 
@@ -332,6 +346,12 @@ func service(_ sub: String, args: Args, socket: String) async throws {
         }
         do {
             try await backend.stopService(force: args.flags.contains("--force"))
+            // Wait until it's gone, so a `service start` right after this
+            // can't connect to the host that is still exiting.
+            let deadline = Date().addingTimeInterval(3)
+            while Date() < deadline, (try? await RemoteBackend.connect(path: socket, client: .cli)) != nil {
+                try await Task.sleep(for: .milliseconds(50))
+            }
             print("Harmune host stopped")
         } catch let e as HarmuneError where e.code == .invalidArgument {
             throw CLIError("Music is playing. Stopping the host will interrupt playback; re-run with --force.")

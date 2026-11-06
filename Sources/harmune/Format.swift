@@ -34,12 +34,12 @@ enum Format {
     }
 
     static func tracks(_ tracks: [Track]) -> String {
-        tracks.map { "  \(pad($0.id, 9)) \(pad($0.title, 32)) \(pad($0.artist, 22)) \(time($0.duration))" }
+        tracks.map { "  \(id($0.id, 9)) \(pad($0.title, 32)) \(pad($0.artist, 22)) \(time($0.duration))" }
             .joined(separator: "\n")
     }
 
     static func albums(_ albums: [Album]) -> String {
-        albums.map { "  \(pad($0.id, 6)) \(pad($0.title, 30)) \(pad($0.artist, 22)) \($0.year.map(String.init) ?? "")" }
+        albums.map { "  \(id($0.id, 6)) \(pad($0.title, 30)) \(pad($0.artist, 22)) \($0.year.map(String.init) ?? "")" }
             .joined(separator: "\n")
     }
 
@@ -47,9 +47,20 @@ enum Format {
         var out: [String] = []
         if !r.songs.isEmpty { out += ["SONGS", tracks(r.songs)] }
         if !r.albums.isEmpty { out += ["", "ALBUMS", albums(r.albums)] }
-        if !r.artists.isEmpty { out += ["", "ARTISTS"] + r.artists.map { "  \(pad($0.id, 6)) \($0.name)" } }
-        if !r.playlists.isEmpty { out += ["", "PLAYLISTS"] + r.playlists.map { "  \(pad($0.id, 6)) \($0.name)" } }
+        if !r.artists.isEmpty { out += ["", "ARTISTS"] + r.artists.map { "  \(id($0.id, 6)) \($0.name)" } }
+        if !r.playlists.isEmpty { out += ["", "PLAYLISTS"] + r.playlists.map { "  \(id($0.id, 6)) \($0.name)" } }
         return out.isEmpty ? "No results" : out.joined(separator: "\n")
+    }
+
+    /// Pads an ID without ever shortening it, because people copy these into
+    /// other commands.
+    static func id(_ s: String, _ width: Int) -> String {
+        s.count >= width ? s : pad(s, width)
+    }
+
+    /// A blank count means the backend doesn't know it yet.
+    static func songCount(_ count: Int) -> String {
+        count > 0 ? "\(count) songs" : ""
     }
 
     static func pad(_ s: String, _ width: Int) -> String {

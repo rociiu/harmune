@@ -11,7 +11,7 @@ import HarmuneIPC
 let usage = """
 usage: harmune-host --demo [--socket <path>] [--idle-exit-minutes <n>]
 
-  --demo                 Serve the fictional demo library (required until the MusicKit host lands)
+  --demo                 Serve the fictional demo library (required)
   --socket <path>        Socket path (default: \(HarmunePaths.socketPath()))
   --idle-exit-minutes n  Quit after n minutes paused with no clients (0 = never, default 30)
 """
@@ -32,7 +32,7 @@ while let arg = args.popFirst() {
 
 guard demo else {
     FileHandle.standardError.write(Data("""
-    The MusicKit host ships as the signed Harmune.app (see docs/IMPLEMENTATION_PLAN.md, Phase 0).
+    This is the development host. The MusicKit host is Harmune.app (Scripts/build-host.sh).
     Run `harmune-host --demo` for the demo library.\n
     """.utf8))
     exit(64)
@@ -50,33 +50,5 @@ do {
 }
 print("harmune-host \(HarmuneVersion.current) (demo) listening on \(socketPath)")
 
-// Clean shutdown on SIGINT/SIGTERM.
-var signalSources: [DispatchSourceSignal] = []
-for sig in [SIGINT, SIGTERM] {
-    signal(sig, SIG_IGN)
-    let source = DispatchSource.makeSignalSource(signal: sig, queue: .main)
-    source.setEventHandler { server.stop(); exit(0) }
-    source.resume()
-    signalSources.append(source)
-}
-server.onStopRequested = { server.stop(); exit(0) }
-
-// Idle exit: paused (or empty) with no clients for `idleMinutes`.
-if idleMinutes > 0 {
-    Task {
-        var idleSince: Date?
-        while true {
-            try? await Task.sleep(for: .seconds(15))
-            let playing = await backend.playbackState().isPlaying
-            let idle = !playing && server.clientCount == 0
-            if !idle { idleSince = nil } else if idleSince == nil { idleSince = Date() }
-            if let since = idleSince, Date().timeIntervalSince(since) >= idleMinutes * 60 {
-                print("harmune-host: idle for \(Int(idleMinutes)) min, exiting")
-                server.stop()
-                exit(0)
-            }
-        }
-    }
-}
-
+HostRuntime.install(server: server, backend: backend, idleMinutes: idleMinutes) { print("harmune-host: \($0)") }
 dispatchMain()
