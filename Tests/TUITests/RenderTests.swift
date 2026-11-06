@@ -161,6 +161,24 @@ import Testing
         #expect(text.contains("/ neon"))
     }
 
+    @Test func immersiveBackdropUsesCoverColorsOnlyInKittyMode() {
+        var state = AppState()
+        state.stack = [.nowPlaying]
+        let path = "/example/cover.png"
+        state.playback.track = Track(id: "song", title: "Song", artist: "Artist", album: "Album", duration: 180,
+                                     artwork: ArtworkRef(key: "cover", path: path))
+        let key = ArtworkKey(path: path, columns: 6, rows: 2)
+        let grid = PixelGrid(width: 6, height: 4, rgb: Array(repeating: 220, count: 6 * 4 * 3))
+        state.art = ArtworkSnapshot(mode: .kitty)
+        #expect(ShellView.render(state, columns: 80, rows: 24, selectedIndex: 0).artworkRequests.contains(key))
+        state.art.decoded[key] = grid
+        let tinted = ShellView.render(state, columns: 80, rows: 24, selectedIndex: 0)
+        #expect(tinted[0, 4].style.bg != state.theme.background)
+        state.art.mode = .halfblock
+        let plain = ShellView.render(state, columns: 80, rows: 24, selectedIndex: 0)
+        #expect(plain[0, 4].style.bg == state.theme.background)
+    }
+
     @Test func immersiveTitleTransitionRespectsReducedMotion() throws {
         var state = AppState()
         state.stack = [.nowPlaying]

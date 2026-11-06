@@ -224,11 +224,12 @@ public final class TUIApp {
         while decoding.count < Self.maxConcurrentDecodes, !waiting.isEmpty {
             let key = waiting.removeFirst()
             decoding.insert(key)
-            let mode = art.mode
             Task.detached(priority: .userInitiated) { [weak self] in
-                // Kitty only needs to know the file exists; half-block needs pixels.
+                // Protocol placements use a zero-sized request. Color and
+                // half-block requests need decoded pixels.
                 let exists = FileManager.default.fileExists(atPath: key.path)
-                let grid = mode == .halfblock && exists ? PixelGrid.load(path: key.path, width: key.columns, height: key.rows * 2) : nil
+                let grid = key.columns > 0 && key.rows > 0 && exists
+                    ? PixelGrid.load(path: key.path, width: key.columns, height: key.rows * 2) : nil
                 await self?.finishDecode(key, exists: exists, grid: grid)
             }
         }
@@ -236,7 +237,7 @@ public final class TUIApp {
 
     private func finishDecode(_ key: ArtworkKey, exists: Bool, grid: PixelGrid?) {
         decoding.remove(key)
-        if exists {
+        if exists, key.columns == 0 || grid != nil {
             missingSince[key.path] = nil
             if art.mode.usesPlacements { art.available.insert(key.path) }
             if let grid {
@@ -246,7 +247,7 @@ public final class TUIApp {
             store.setArtwork(art)
             scheduleRender()
         } else {
-            // Not generated yet (demo) or missing: retry in a couple of seconds.
+            // Missing, unreadable, or still being generated. Back off before retrying.
             missingSince[key.path] = Date()
             DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
                 MainActor.assumeIsolated { self?.scheduleRender() }

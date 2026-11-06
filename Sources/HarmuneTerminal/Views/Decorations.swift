@@ -108,6 +108,9 @@ enum NowPlayingView {
             c.text("Nothing playing", x: r.x + max(0, (r.width - 15) / 2), y: r.y + r.height / 2, style: t.dimmed)
             return
         }
+        if s.prefs.dynamicColors {
+            ArtworkBackdrop.draw(&c, r, path: track.artwork?.path, theme: t, art: s.art)
+        }
         // Square on screen, because cells are about twice as tall as wide.
         let artH = max(3, min(r.height - 10, Int(Double(r.height) * s.prefs.artworkSize.fraction)))
         let artW = min(r.width - 4, artH * 2)

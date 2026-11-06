@@ -17,7 +17,7 @@ Harmune plays Apple Music from a signed host with Music.app closed, and keeps pl
 
 - **TUI:** Home, Search, Songs, Albums (artwork grid or list), Artists, Playlists, Recently Played, album, artist and playlist pages, Queue, immersive Now Playing, Settings, help and command mode
 - **Themes:** harmune-midnight, tokyo-night, catppuccin-mocha, gruvbox-dark, nord, dracula, mono, and your own
-- **Artwork:** Kitty graphics (Kitty, Ghostty), iTerm2 inline images (iTerm2, WezTerm), Sixel, or half-blocks everywhere else
+- **Artwork:** Kitty graphics (Kitty, Ghostty), iTerm2 inline images (iTerm2, WezTerm), Sixel, or half-blocks everywhere else. Kitty-compatible terminals also show a soft cover-derived background in immersive Now Playing when artwork and dynamic colors are enabled
 - **CLI:** playback, queue, search, library, service, config, key list, shell completions and cache
 
 **Known limitations**
@@ -27,7 +27,6 @@ Harmune plays Apple Music from a signed host with Music.app closed, and keeps pl
 - There's no volume control, because MusicKit has no API for it on macOS.
 - Inside tmux, artwork uses half-blocks.
 - Kitty, iTerm2 and Sixel image output is tested by its bytes, but hasn't been checked by eye in those terminals yet.
-- The blurred artwork background from the spec isn't built.
 
 ## Try it
 

@@ -133,6 +133,35 @@ enum Artwork {
     }
 }
 
+/// A softly tinted backdrop made from a tiny, resampled cover. Using
+/// background cells keeps the title readable and avoids a second image layer.
+enum ArtworkBackdrop {
+    static func draw(_ c: inout Canvas, _ r: Rect, path: String?, theme: Theme, art: ArtworkSnapshot) {
+        guard art.mode == .kitty, art.enabled, !theme.usesReverseSelection, let path,
+              case let .rgb(red, green, blue) = theme.background else { return }
+        let key = ArtworkKey(path: path, columns: 6, rows: 2)
+        guard let grid = art.decoded[key] else {
+            c.artworkRequests.insert(key)
+            return
+        }
+
+        let background = (red, green, blue)
+        for y in 0..<r.height {
+            let gy = Double(y) * Double(grid.height - 1) / Double(max(1, r.height - 1))
+            let iy = Int(gy)
+            for x in 0..<r.width {
+                let gx = Double(x) * Double(grid.width - 1) / Double(max(1, r.width - 1))
+                let ix = Int(gx)
+                let top = ArtworkPlaceholder.mix(grid.pixel(ix, iy), grid.pixel(ix + 1, iy), gx - Double(ix))
+                let bottom = ArtworkPlaceholder.mix(grid.pixel(ix, iy + 1), grid.pixel(ix + 1, iy + 1), gx - Double(ix))
+                let sample = ArtworkPlaceholder.mix(top, bottom, gy - Double(iy))
+                let (r0, g0, b0) = ArtworkPlaceholder.mix(background, sample, 0.10)
+                c[r.x + x, r.y + y].style.bg = .rgb(r0, g0, b0)
+            }
+        }
+    }
+}
+
 enum HalfBlock {
     /// Each cell shows two vertical pixels: top as fg of `▀`, bottom as bg.
     static func draw(_ c: inout Canvas, _ r: Rect, _ grid: PixelGrid) {

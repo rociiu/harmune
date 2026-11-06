@@ -1089,7 +1089,7 @@ If image rendering fails, Harmune must continue functioning.
 - The TUI transmits each image to the terminal **once per image ID** and re-places it cheaply. Off-screen images are evicted with an LRU.
 - File transmission (`t=f`) only for local sessions. Direct transmission over SSH.
 - At most 4 concurrent fetch/decode jobs. Visible cells first.
-- The immersive blurred background requires negative z-index images *and* default-background cells. It is P2 and limited to Kitty/Ghostty.
+- Immersive Now Playing can tint the background cells from a downsampled cover. It is P2 and limited to Kitty/Ghostty, with artwork and dynamic colors enabled.
 
 A custom graphics layer may be required for background image layering, image caching, and reliable cleanup when views change.
 
