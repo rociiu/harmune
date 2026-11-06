@@ -102,10 +102,11 @@ public struct ArtworkSnapshot: Sendable {
 /// Draws artwork for `path` into `rect`, using the best available method,
 /// falling back to a placeholder gradient.
 enum Artwork {
-    static func draw(_ c: inout Canvas, _ rect: Rect, path: String?, seed: String, theme: Theme, art: ArtworkSnapshot) {
+    static func draw(_ c: inout Canvas, _ rect: Rect, path: String?, seed: String, theme: Theme, art: ArtworkSnapshot,
+                     transition: (previousSeed: String, progress: Double)? = nil) {
         guard rect.width > 0, rect.height > 0 else { return }
         guard let path, art.enabled, art.mode != .none, !theme.usesReverseSelection else {
-            ArtworkPlaceholder.draw(&c, rect, seed: seed, theme: theme)
+            ArtworkPlaceholder.draw(&c, rect, seed: seed, theme: theme, transition: transition)
             return
         }
         switch art.mode {
@@ -117,17 +118,17 @@ enum Artwork {
             c.imagePlacements.append(ImagePlacement(path: path, rect: rect))
         case .kitty, .iterm2, .sixel:
             c.artworkRequests.insert(ArtworkKey(path: path, columns: 0, rows: 0))
-            ArtworkPlaceholder.draw(&c, rect, seed: seed, theme: theme)
+            ArtworkPlaceholder.draw(&c, rect, seed: seed, theme: theme, transition: transition)
         case .halfblock:
             let key = ArtworkKey(path: path, columns: rect.width, rows: rect.height)
             if let grid = art.decoded[key] {
                 HalfBlock.draw(&c, rect, grid)
             } else {
                 c.artworkRequests.insert(key)
-                ArtworkPlaceholder.draw(&c, rect, seed: seed, theme: theme)
+                ArtworkPlaceholder.draw(&c, rect, seed: seed, theme: theme, transition: transition)
             }
         case .none:
-            ArtworkPlaceholder.draw(&c, rect, seed: seed, theme: theme)
+            ArtworkPlaceholder.draw(&c, rect, seed: seed, theme: theme, transition: transition)
         }
     }
 }

@@ -145,7 +145,8 @@ public final class TUIApp {
         let spinner = s.loading.contains(s.route) && frameCounter % max(1, s.prefs.maxFPS / 10) == 0
         // Otherwise refresh progress about once a second.
         let progress = s.playback.isPlaying && frameCounter % max(1, s.prefs.maxFPS) == 0
-        if animating || spinner || dirty || progress {
+        let transitioning = focused && s.trackTransitionProgress != nil
+        if animating || transitioning || spinner || dirty || progress {
             render()
         }
     }

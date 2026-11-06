@@ -89,8 +89,9 @@ public final class AppStore {
     @discardableResult
     public func tick() -> Bool {
         let reconnectSeconds = state.reconnectSeconds
+        let wasTransitioning = state.trackTransitionProgress != nil
         state.now = clock()
-        var dirty = reconnectSeconds != state.reconnectSeconds
+        var dirty = reconnectSeconds != state.reconnectSeconds || wasTransitioning && state.trackTransitionProgress == nil
         if let toast = state.toast, toast.expires <= state.now { state.toast = nil; dirty = true }
         if let resolution = resolver.expire(context: keyContext, at: state.now) {
             state.pendingKeys = ""
@@ -122,12 +123,21 @@ public final class AppStore {
 
     private func apply(_ event: BackendEvent) {
         switch event {
-        case .playback(let p) where p.revision >= state.playback.revision: state.playback = p
+        case .playback(let p) where p.revision >= state.playback.revision: applyPlayback(p)
         case .queue(let q) where q.revision >= state.queue.revision: state.queue = q
         case .auth(let a): authChanged(to: a)
         default: return
         }
         changed()
+    }
+
+    private func applyPlayback(_ playback: PlaybackState) {
+        if let previous = state.playback.track, let next = playback.track, previous.id != next.id,
+           state.route == .nowPlaying, state.focus == .content, !state.prefs.reducedMotion {
+            state.now = clock()
+            state.trackTransition = (state.now, previous.album)
+        }
+        state.playback = playback
     }
 
     /// Everything loaded before access was granted is missing or an error.
@@ -971,7 +981,7 @@ public final class AppStore {
                 let playback = await backend.playbackState()
                 let queue = await backend.queueState()
                 guard let self else { return }
-                if playback.revision >= self.state.playback.revision { self.state.playback = playback }
+                if playback.revision >= self.state.playback.revision { self.applyPlayback(playback) }
                 if queue.revision >= self.state.queue.revision { self.state.queue = queue }
             } catch {
                 self?.toast("\(label) failed: \(Self.message(error))", error: true)

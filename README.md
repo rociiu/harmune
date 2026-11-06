@@ -27,7 +27,7 @@ Harmune plays Apple Music from a signed host with Music.app closed, and keeps pl
 - There's no volume control, because MusicKit has no API for it on macOS.
 - Inside tmux, artwork uses half-blocks.
 - Kitty, iTerm2 and Sixel image output is tested by its bytes, but hasn't been checked by eye in those terminals yet.
-- Track transition animations and the blurred artwork background from the spec aren't built.
+- The blurred artwork background from the spec isn't built.
 
 ## Try it
 

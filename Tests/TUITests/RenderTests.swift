@@ -161,6 +161,28 @@ import Testing
         #expect(text.contains("/ neon"))
     }
 
+    @Test func immersiveTitleTransitionRespectsReducedMotion() throws {
+        var state = AppState()
+        state.stack = [.nowPlaying]
+        state.playback.track = Track(id: "next", title: "Next song", artist: "Artist", album: "Album", duration: 180)
+        state.trackTransition = (state.now, "Previous album")
+
+        func titleIndent() throws -> Int {
+            let text = ShellView.render(state, columns: 80, rows: 24, selectedIndex: 0).plainText
+            let line = try #require(text.split(separator: "\n").first { $0.contains("NEXT SONG") })
+            return line.prefix { $0 == " " }.count
+        }
+
+        let sliding = try titleIndent()
+        state.prefs.reducedMotion = true
+        let centered = try titleIndent()
+        #expect(sliding == centered + 4)
+
+        state.prefs.reducedMotion = false
+        state.now = state.now.addingTimeInterval(1)
+        #expect(try titleIndent() == centered)
+    }
+
     @Test func tinyTerminalDoesNotCrash() async {
         let store = await makeStore()
         for (c, r) in [(1, 1), (10, 3), (20, 6), (30, 8)] {

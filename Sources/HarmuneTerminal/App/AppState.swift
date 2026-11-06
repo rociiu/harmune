@@ -281,6 +281,12 @@ public struct AppState: Sendable {
     public var theme = Theme.midnight
     public var themes = Theme.all
     public var keymap = Keymap.standard
+    var trackTransition: (startedAt: Date, previousAlbum: String)?
+    var trackTransitionProgress: Double? {
+        guard route == .nowPlaying, focus == .content, !prefs.reducedMotion, let trackTransition else { return nil }
+        let elapsed = now.timeIntervalSince(trackTransition.startedAt)
+        return elapsed < 0.2 ? max(0, elapsed / 0.2) : nil
+    }
     public var now = Date()
     public var prefs = Preferences()
     /// Picked from the current cover; only decorative elements use it.

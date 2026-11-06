@@ -16,7 +16,8 @@ enum ArtworkPlaceholder {
         (249, 213, 139), (243, 139, 168), (120, 90, 200), (60, 70, 140),
     ]
 
-    static func draw(_ c: inout Canvas, _ r: Rect, seed: String, theme: Theme) {
+    static func draw(_ c: inout Canvas, _ r: Rect, seed: String, theme: Theme,
+                     transition: (previousSeed: String, progress: Double)? = nil) {
         guard r.width > 0, r.height > 0 else { return }
         if theme.usesReverseSelection {
             c.fill(r, char: "░", style: Style())
@@ -24,7 +25,12 @@ enum ArtworkPlaceholder {
             return
         }
         let h = stableHash(seed)
-        let a = palette[Int(h % 8)], b = palette[Int((h >> 8) % 8)]
+        var a = palette[Int(h % 8)], b = palette[Int((h >> 8) % 8)]
+        if let transition, transition.previousSeed != seed {
+            let oldHash = stableHash(transition.previousSeed)
+            a = mix(palette[Int(oldHash % 8)], a, transition.progress)
+            b = mix(palette[Int((oldHash >> 8) % 8)], b, transition.progress)
+        }
         let dark: (UInt8, UInt8, UInt8) = (24, 24, 36)
         let angle = Double(h >> 16 & 0xFF) / 255.0
         func color(_ x: Int, _ y: Int) -> TermColor {
@@ -106,16 +112,22 @@ enum NowPlayingView {
         let artH = max(3, min(r.height - 10, Int(Double(r.height) * s.prefs.artworkSize.fraction)))
         let artW = min(r.width - 4, artH * 2)
         let art = Rect(x: r.x + (r.width - artW) / 2, y: r.y + 1, width: artW, height: artH)
-        Artwork.draw(&c, art, path: track.artwork?.path, seed: track.album, theme: t, art: s.art)
+        let transitionProgress = s.trackTransitionProgress
+        let transition = transitionProgress.flatMap { progress in
+            s.trackTransition.map { (previousSeed: $0.previousAlbum, progress: progress) }
+        }
+        Artwork.draw(&c, art, path: track.artwork?.path, seed: track.album, theme: t, art: s.art, transition: transition)
 
         var y = art.maxY + 1
-        func centered(_ text: String, _ style: Style) {
+        func centered(_ text: String, _ style: Style, slide: Int = 0) {
             guard y < r.maxY else { return }
             let w = min(textWidth(text), r.width - 2)
-            c.text(text, x: r.x + (r.width - w) / 2, y: y, maxWidth: r.width - 2, style: style)
+            let padding = (r.width - w) / 2
+            c.text(text, x: r.x + padding + min(slide, max(0, padding - 1)), y: y,
+                   maxWidth: w, style: style)
             y += 1
         }
-        centered(track.title.uppercased(), Style(fg: t.text, bold: true))
+        centered(track.title.uppercased(), Style(fg: t.text, bold: true), slide: transitionProgress.map { Int((4 * (1 - $0)).rounded()) } ?? 0)
         centered(track.artist, Style(fg: t.accent))
         centered(track.album, t.secondary)
         y += 1
