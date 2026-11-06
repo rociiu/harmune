@@ -37,6 +37,7 @@ public protocol MusicBackend: Sendable {
     func playlist(id: String) async throws -> PlaylistDetail
     func home() async throws -> HomeSections
     func favorites() async throws -> Favorites
+    func addFavorite(id: String, kind: MediaKind) async throws
 
     // State
     func playbackState() async -> PlaybackState
@@ -47,4 +48,5 @@ public protocol MusicBackend: Sendable {
 
 public extension MusicBackend {
     func favorites() async throws -> Favorites { throw HarmuneError.unsupported("Favorites") }
+    func addFavorite(id: String, kind: MediaKind) async throws { throw HarmuneError.unsupported("Adding favorites") }
 }

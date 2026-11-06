@@ -256,8 +256,11 @@ func type(_ store: AppStore, _ text: String) async {
         #expect(rows.contains { $0.trackID != nil })
         await press(store, "<cr>")
         #expect(store.state.playback.track?.id == rows.first(where: { $0.isSelectable })?.trackID)
-        await press(store, "f")
-        #expect(store.state.toast?.isError == true)
+        await press(store, "glG")
+        let songID = screen(for: .songs, in: store.state).rows[store.selectedIndex].trackID
+        #expect(!rows.contains { $0.trackID == songID })
+        await press(store, "fgf")
+        #expect(screen(for: .favorites, in: store.state).rows.contains { $0.trackID == songID })
     }
 
     @Test func errorsSurfaceOnTheRoute() async {

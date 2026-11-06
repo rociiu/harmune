@@ -22,7 +22,7 @@ Harmune plays Apple Music from a signed host with Music.app closed, and keeps pl
 
 **Known limitations**
 
-- Press `gf` to browse favorite songs and albums from your library. Use Apple Music to edit favorites.
+- Press `gf` to browse favorite songs and albums from your library. Press `f` on a catalog song or album to add it to Apple Music favorites. Remove favorites in Apple Music.
 - The visualizer is decorative, because MusicKit doesn't expose audio.
 - There's no volume control, because MusicKit has no API for it on macOS.
 - Inside tmux, artwork uses half-blocks.

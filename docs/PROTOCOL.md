@@ -46,7 +46,7 @@ Send `session.hello` first:
 
 The result has `protocolVersion`, `hostVersion` and `capabilities`. To receive events, send `session.subscribe` with `{"topics":["playback","queue","authorization"]}`.
 
-**Capabilities:** `queue.remove`, `queue.move`, `favorites`, `recommendations`, `recentlyPlayed`, `library.search`. Check them before offering an action.
+**Capabilities:** `queue.remove`, `queue.move`, `favorites`, `favorites.add`, `recommendations`, `recentlyPlayed`, `library.search`. Check them before offering an action.
 
 ## Commands
 
@@ -71,6 +71,7 @@ The result has `protocolVersion`, `hostVersion` and `capabilities`. To receive e
 | `browse.album`, `.artist`, `.playlist` | `{"id":"…"}` | detail object |
 | `browse.home` | | `HomeSections` |
 | `browse.favorites` | | `Favorites` (library songs and albums) |
+| `favorites.add` | `{"id":"c:…","kind":"songs"}` | |
 | `service.status` | | `ServiceStatus` |
 | `service.stop` | `{"force":false}` | fails with `invalidArgument` if music is playing and `force` is false |
 

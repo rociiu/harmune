@@ -231,6 +231,7 @@ public enum Capability: String, Codable, Sendable, CaseIterable {
     case queueRemove = "queue.remove"
     case queueMove = "queue.move"
     case favorites
+    case favoriteAdd = "favorites.add"
     case recommendations
     case recentlyPlayed
     case librarySearch = "library.search"

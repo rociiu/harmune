@@ -14,6 +14,8 @@ public actor DemoBackend: MusicBackend {
     private var queue = QueueState()
     private var unshuffledOrder: [String] = []
     private var entryCounter = 0
+    private var favoriteSongIDs: Set<String>
+    private var favoriteAlbumIDs: Set<String>
     private var subscribers: [UUID: AsyncStream<BackendEvent>.Continuation] = [:]
     private var ticker: Task<Void, Never>?
 
@@ -26,6 +28,8 @@ public actor DemoBackend: MusicBackend {
         self.library = library
         self.now = now
         self.latency = latency
+        favoriteSongIDs = Set(library.tracks.prefix(6).map(\.id))
+        favoriteAlbumIDs = Set(library.albums.suffix(6).map(\.id))
         if autoTick {
             Task { await self.startTicker() }
             let keys = library.artworkKeys
@@ -289,15 +293,29 @@ public actor DemoBackend: MusicBackend {
         return PlaylistDetail(playlist: p, tracks: library.tracks(inPlaylist: id))
     }
 
-    public func favorites() -> Favorites {
-        Favorites(songs: Array(library.tracks.prefix(6)), albums: Array(library.albums.suffix(6)))
+    public func favorites() async -> Favorites {
+        Favorites(songs: library.tracks.filter { favoriteSongIDs.contains($0.id) },
+                  albums: library.albums.filter { favoriteAlbumIDs.contains($0.id) })
+    }
+
+    public func addFavorite(id: String, kind: MediaKind) async throws {
+        switch kind {
+        case .songs:
+            guard library.tracksByID[id] != nil else { throw HarmuneError.notFound("Song \(id)") }
+            favoriteSongIDs.insert(id)
+        case .albums:
+            guard library.albumsByID[id] != nil else { throw HarmuneError.notFound("Album \(id)") }
+            favoriteAlbumIDs.insert(id)
+        default:
+            throw HarmuneError.unsupported("Only songs and albums can be added to favorites")
+        }
     }
 
     public func home() async throws -> HomeSections {
         try await simulateLatency()
         return HomeSections(recentlyPlayed: Array(library.albums.prefix(6)),
                             madeForYou: Array(library.playlists.prefix(5)),
-                            favoriteAlbums: Array(library.albums.suffix(6)))
+                            favoriteAlbums: Array(library.albums.lazy.filter { self.favoriteAlbumIDs.contains($0.id) }.prefix(6)))
     }
 
     // MARK: - Helpers

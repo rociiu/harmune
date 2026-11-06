@@ -21,6 +21,18 @@ enum FavoriteLibrary {
         var next: String?
     }
 
+    static func add(_ item: MusicID, kind: MediaKind) async throws {
+        var components = URLComponents()
+        components.scheme = "https"
+        components.host = "api.music.apple.com"
+        components.path = "/v1/me/favorites"
+        components.queryItems = [URLQueryItem(name: "ids[\(kind.rawValue)]", value: item.raw)]
+        guard let url = components.url else { throw HarmuneError.invalid("Invalid favorite item") }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        _ = try await MusicDataRequest(urlRequest: request).response()
+    }
+
     static func load() async throws -> Favorites {
         async let songs = load("songs")
         async let albums = load("albums")

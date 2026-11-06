@@ -90,6 +90,7 @@ public enum Action {
     public static let playlist = "browse.playlist"
     public static let home = "browse.home"
     public static let favorites = "browse.favorites"
+    public static let favoriteAdd = "favorites.add"
 
     public static let serviceStatus = "service.status"
     public static let serviceStop = "service.stop"
@@ -130,6 +131,7 @@ public struct BoolPayload: Codable, Sendable { public var on: Bool }
 public struct RepeatPayload: Codable, Sendable { public var mode: RepeatMode }
 public struct EnqueuePayload: Codable, Sendable { public var songIDs: [String]; public var position: EnqueuePosition }
 public struct EntryPayload: Codable, Sendable { public var entryID: String; public var index: Int? }
+public struct FavoritePayload: Codable, Sendable { public var id: String; public var kind: MediaKind }
 public struct IDPayload: Codable, Sendable { public var id: String }
 public struct PagePayload: Codable, Sendable {
     public var sort: SortKey?

@@ -30,6 +30,7 @@ A count repeats motions, such as `5j` or `3]`. Multi-key sequences such as `gg` 
 | `gA` | Artists |
 | `gp` | Playlists |
 | `gf` | Favorites (if supported) |
+| `f` | Add the selected catalog song or album to Apple Music favorites (if supported) |
 | `gr` | Recently Played |
 | `gq` | Queue |
 | `gn` | Now Playing |

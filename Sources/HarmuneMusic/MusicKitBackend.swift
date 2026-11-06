@@ -47,7 +47,7 @@ public final class MusicKitBackend: MusicBackend {
     // MARK: - Session
 
     public func capabilities() -> Set<Capability> {
-        [.recommendations, .recentlyPlayed, .librarySearch, .queueRemove, .queueMove, .favorites]
+        [.recommendations, .recentlyPlayed, .librarySearch, .queueRemove, .queueMove, .favorites, .favoriteAdd]
     }
 
     public func authStatus() async -> AuthStatus {
@@ -363,6 +363,19 @@ public final class MusicKitBackend: MusicBackend {
     }
 
     // MARK: - Browse
+
+    public func addFavorite(id: String, kind: MediaKind) async throws {
+        try await call("favorites add") {
+            guard kind == .songs || kind == .albums else {
+                throw HarmuneError.unsupported("Only songs and albums can be added to favorites")
+            }
+            let item = try parse(id)
+            guard item.source == .catalog else {
+                throw HarmuneError.invalid("Find this item in Apple Music search to add it to favorites")
+            }
+            try await FavoriteLibrary.add(item, kind: kind)
+        }
+    }
 
     public func favorites() async throws -> Favorites {
         try await call("favorites") { try await FavoriteLibrary.load() }

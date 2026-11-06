@@ -368,8 +368,7 @@ public final class AppStore {
             run("Repeat") { b in try await b.setRepeat(mode) }
             toast("Repeat \(mode.rawValue)")
         case .toggleFavorite:
-            if !state.capabilities.contains(.favorites) { toast("Favorites aren't supported by this backend", error: true) }
-            else { toast("Edit favorites in Apple Music", error: true) }
+            addSelectedFavorite()
 
         case .addToQueue: enqueueSelection(.last)
         case .playNext: enqueueSelection(.next)
@@ -393,6 +392,32 @@ public final class AppStore {
         if state.route != .nowPlaying { push(.nowPlaying) }
         else if state.stack.count > 1 { pop() }
         else { go(.home) }
+    }
+
+    private func addSelectedFavorite() {
+        guard state.capabilities.contains(.favoriteAdd) else {
+            toast("Adding favorites isn't supported by this backend", error: true)
+            return
+        }
+        let item: (id: String, kind: MediaKind)
+        switch selectedRow?.kind {
+        case .song(let track, _, _, _): item = (track.id, .songs)
+        case .queueEntry(let entry, _): item = (entry.track.id, .songs)
+        case .album(let album): item = (album.id, .albums)
+        default:
+            toast("Select a song or album to add to favorites", error: true)
+            return
+        }
+        let backend = self.backend
+        spawn { [weak self] in
+            do {
+                try await backend.addFavorite(id: item.id, kind: item.kind)
+                self?.state.data[.favorites] = nil
+                self?.toast("Favorite request accepted by Apple Music")
+            } catch {
+                self?.toast("Favorite: " + Self.message(error), error: true)
+            }
+        }
     }
 
     private func requireQueue(_ cap: Capability) -> Bool {
