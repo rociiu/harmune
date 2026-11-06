@@ -17,7 +17,7 @@ extension Keymap {
             HelpEntry(.center, action: "center the selection"),
             HelpEntry(.openSelected, action: "open or play the selection"),
             HelpEntry(.goBack, action: "back"),
-            HelpEntry(.focusNext, action: "switch between sidebar and content"),
+            HelpEntry(.focusNext, action: "open or close the view switcher"),
             HelpEntry(.close, action: "close, clear the filter, or go back"),
             HelpEntry(.quit, action: "back; quit from the root (music keeps playing)"),
         ]),
@@ -75,6 +75,10 @@ extension Keymap {
             }
         }
         return found.sorted { (rank($0), $0.count, Self.display($0)) < (rank($1), $1.count, Self.display($1)) }
+    }
+
+    func shortcut(for command: KeyCommand) -> String? {
+        sequences(for: command).first.map(Self.display)
     }
 
     static func display(_ keys: [Key]) -> String {

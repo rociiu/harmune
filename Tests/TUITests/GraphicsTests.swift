@@ -115,9 +115,9 @@ import Testing
     @Test func toggleLayout() async {
         let store = await makeStore()
         await press(store, "ga")
-        #expect(store.state.albumGrid)
-        await press(store, "t")
         #expect(!store.state.albumGrid)
+        await press(store, "t")
+        #expect(store.state.albumGrid)
         await press(store, "gl")
         await press(store, "t")
         #expect(store.state.toast?.isError == true)
@@ -125,7 +125,7 @@ import Testing
 
     @Test func gridRendersTiles() async {
         let store = await makeStore()
-        await press(store, "ga")
+        await press(store, "gat")
         let layout = ShellLayout(columns: 140, rows: 40)
         store.gridColumns = ShellView.gridColumns(for: store.state, layout: layout)
         #expect(store.gridColumns >= 4)

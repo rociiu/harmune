@@ -8,14 +8,14 @@ A count repeats motions, such as `5j` or `3]`. Multi-key sequences such as `gg` 
 
 | Keys | Action |
 |---|---|
-| `j` / `k` | move down / up (5j moves five) |
+| `↓` / `↑` or `j` / `k` | move down / up (5j moves five) |
 | `gg` / `G` | first / last item |
 | `Ctrl+d` / `Ctrl+u` | half page down / up |
 | `Ctrl+f` / `Ctrl+b` | full page down / up |
 | `zz` | center the selection |
 | `l` / `Enter` | open or play the selection |
 | `h` / `←` | back |
-| `Tab` | switch between sidebar and content |
+| `Tab` | open or close the view switcher |
 | `Esc` | close, clear the filter, or go back |
 | `q` / `Ctrl+c` | back; quit from the root (music keeps playing) |
 

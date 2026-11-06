@@ -5,12 +5,11 @@ public enum Route: Hashable, Sendable {
     case home, search, songs, albums, artists, playlists, recentlyPlayed, queue, nowPlaying, settings
     case album(String), playlist(String), artist(String)
 
-    /// Sidebar order (spec §4.1); nil is a gap. Recently Played stays hidden
-    /// unless the backend supports it, and Favorites until one does.
-    static func sidebar(_ capabilities: Set<Capability>) -> [Route?] {
-        var items: [Route?] = [.home, .search, nil, .songs, .albums, .artists, .playlists]
-        if capabilities.contains(.recentlyPlayed) { items.append(.recentlyPlayed) }
-        return items + [nil, .queue, .settings]
+    /// Destinations available in the view switcher.
+    static func destinations(_ capabilities: Set<Capability>) -> [Route] {
+        var routes: [Route] = [.home, .search, .songs, .albums, .artists, .playlists]
+        if capabilities.contains(.recentlyPlayed) { routes.append(.recentlyPlayed) }
+        return routes + [.queue, .settings]
     }
 
     var title: String {
@@ -59,7 +58,7 @@ public enum Route: Hashable, Sendable {
     }
 }
 
-public enum Focus: Sendable { case sidebar, content }
+public enum Focus: Sendable { case views, content }
 
 public enum InputMode: Sendable, Equatable { case normal, search, filter, command }
 
@@ -118,7 +117,7 @@ public struct Preferences: Sendable, Equatable {
     public var showBorders = true
     public var dynamicColors = true
     public var reducedMotion = false
-    public var albumGrid = true
+    public var albumGrid = false
     public var showProgress = true
     public var showDuration = true
     public var artworkSize = ArtworkSize.medium
@@ -195,7 +194,6 @@ public struct DetailHeader: Sendable, Equatable {
     public var title: String
     public var subtitle: String
     public var meta: String
-    public var artworkPath: String?
 }
 
 /// Data loaded for a route.
@@ -251,7 +249,7 @@ public struct AppState: Sendable {
     // Navigation
     public var stack: [Route] = [.home]
     public var focus = Focus.content
-    public var sidebarIndex = 0
+    public var viewIndex = 0
     public var selection: [Route: Int] = [:]
     public var scroll: [Route: Int] = [:]
 

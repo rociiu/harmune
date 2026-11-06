@@ -42,7 +42,7 @@ swift build
 .build/debug/harmune --demo
 ```
 
-Press `?` inside the app for keys, or see [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md).
+Use `↑` and `↓` to move, `Enter` to open or play, and `Space` to pause or resume. Press `Tab` to switch views, `/` to search, `:` to run a command, or `?` for [keyboard shortcuts](docs/KEYBINDINGS.md).
 
 ## Use it with Apple Music
 
@@ -95,7 +95,7 @@ restore_last_view = false
 [appearance]
 show_artwork = true
 graphics = "auto"            # auto, kitty, iterm2, sixel, halfblock, none
-album_view = "grid"          # grid or table
+album_view = "table"         # table or artwork grid
 artwork_size = "medium"      # small, medium, large (immersive view)
 show_visualizer = true
 show_borders = true

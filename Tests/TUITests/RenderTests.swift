@@ -62,17 +62,23 @@ import Testing
     @Test(arguments: [(50, 20), (80, 24), (100, 30), (140, 40), (200, 50)])
     func breakpoints(_ cols: Int, _ rows: Int) {
         let l = ShellLayout(columns: cols, rows: rows)
-        #expect((l.sidebar != nil) == (cols >= 90))
-        #expect((l.rightPanel != nil) == (cols >= 120))
-        // Regions tile the screen without overlap.
-        let regions = [l.header, l.sidebar, l.rightPanel, l.content, l.player, l.status].compactMap { $0 }
-        #expect(regions.reduce(0) { $0 + $1.width * $1.height } == cols * rows)
+        // A prompt and footer frame one content area at every size.
+        let regions = [l.header, l.content, l.player, l.status]
+        #expect(regions.allSatisfy { $0.width == cols })
+        #expect(regions.first?.y == 0)
+        for (above, below) in zip(regions, regions.dropFirst()) {
+            #expect(above.maxY == below.y)
+        }
+        #expect(regions.last?.maxY == rows)
     }
 
-    @Test func shortTerminalsCollapsePlayerAndHeader() {
-        #expect(ShellLayout(columns: 80, rows: 15).player.height == 2)
-        #expect(ShellLayout(columns: 80, rows: 10).header == nil)
-        #expect(ShellLayout(columns: 80, rows: 24).player.height == 4)
+    @Test func shortTerminalsKeepThePromptAndPlayer() {
+        for rows in [6, 10, 24] {
+            let layout = ShellLayout(columns: 80, rows: rows)
+            #expect(layout.header.height == 1)
+            #expect(layout.player.height == 2)
+            #expect(layout.status.height == 1)
+        }
     }
 }
 
@@ -98,7 +104,7 @@ import Testing
                 let c = frame(store, cols, rows)
                 let text = c.plainText
                 #expect(text.split(separator: "\n", omittingEmptySubsequences: false).count == rows)
-                #expect(text.contains("NORMAL"), "status bar missing at \(cols)x\(rows) for \(keys)")
+                #expect(text.contains("? keys"), "help shortcut missing at \(cols)x\(rows) for \(keys)")
                 if store.state.route != .nowPlaying {
                     #expect(text.contains(store.state.route.title) || text.contains("Library"),
                             "breadcrumb missing at \(cols)x\(rows) for \(keys)")
@@ -108,25 +114,32 @@ import Testing
         }
     }
 
-    @Test func wideLayoutMatchesDesign() async {
+    @Test func shellKeepsPlaybackAndHelpInDedicatedLines() async throws {
         let store = await makeStore()
         await press(store, "ga<cr>jj<cr>")
-        let text = frame(store, 160, 40).plainText
-        #expect(text.contains("harmune"))
-        #expect(text.contains("● Playing"))
-        #expect(text.contains("Home") && text.contains("Albums") && text.contains("Queue"))  // sidebar
-        #expect(text.contains("▶"))  // playing marker
-        #expect(text.contains("━"))  // progress bar
-        let title = store.state.playback.track?.title ?? "∅"
-        #expect(text.components(separatedBy: title).count >= 3)  // list, right panel, player
+        let title = try #require(store.state.playback.track?.title)
+        for (columns, rows) in [(50, 20), (80, 24), (160, 40)] {
+            let canvas = frame(store, columns, rows)
+            let lines = canvas.plainText.split(separator: "\n", omittingEmptySubsequences: false)
+            #expect(lines[0].contains("$ harmune"))
+            #expect(!lines[0].contains(title))
+            #expect(lines[rows - 2].contains("▶ Playing"))
+            #expect(lines[rows - 1].contains("? keys"))
+            #expect(!lines.contains { $0.contains("Open a view") })
+            #expect(canvas.artworkRequests.isEmpty)
+        }
     }
 
-    @Test func compactLayoutHidesSidebar() async {
+    @Test func viewSwitcherFitsCompactTerminal() async {
         let store = await makeStore()
-        await press(store, "gl")
-        let text = frame(store, 60, 20).plainText
-        #expect(!text.contains("⌂  Home"))
-        #expect(text.contains("Songs"))
+        await press(store, "ga<cr><tab>G")
+        let menu = frame(store, 50, 10).plainText
+        #expect(menu.contains("Open a view"))
+        #expect(menu.contains("> Settings"))
+        await press(store, "<esc>")
+        let detail = frame(store, 50, 10).plainText
+        #expect(!detail.contains("Open a view"))
+        #expect(detail.contains("Library / Albums /"))
     }
 
     @Test func overlaysRender() async {

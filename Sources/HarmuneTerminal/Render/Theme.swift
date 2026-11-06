@@ -21,11 +21,11 @@ public struct Theme: Sendable, Equatable {
 
     public static let midnight = Theme(
         name: "harmune-midnight",
-        background: TermColor(hex: 0x101018), surface: TermColor(hex: 0x181824), elevated: TermColor(hex: 0x222235),
-        text: TermColor(hex: 0xEAEAF2), textSecondary: TermColor(hex: 0xA1A1B5), muted: TermColor(hex: 0x69697D),
-        accent: TermColor(hex: 0xC6A5FF), accentPink: TermColor(hex: 0xF3A6C8), accentBlue: TermColor(hex: 0x94BFFF),
+        background: TermColor(hex: 0x101619), surface: TermColor(hex: 0x161F23), elevated: TermColor(hex: 0x243137),
+        text: TermColor(hex: 0xEDF3EE), textSecondary: TermColor(hex: 0xA1AFB1), muted: TermColor(hex: 0x718184),
+        accent: TermColor(hex: 0xB9F674), accentPink: TermColor(hex: 0xF3A6C8), accentBlue: TermColor(hex: 0x94BFFF),
         success: TermColor(hex: 0xA6E3A1), warning: TermColor(hex: 0xF9D58B), error: TermColor(hex: 0xF38BA8),
-        border: TermColor(hex: 0x343446))
+        border: TermColor(hex: 0x303C41))
 
     public static let mono = Theme(
         name: "mono",
@@ -148,20 +148,4 @@ public struct Theme: Sendable, Equatable {
         if usesReverseSelection { return Style(underline: !focused, reverse: focused) }
         return Style(fg: focused ? text : textSecondary, bg: elevated)
     }
-}
-
-/// Responsive layout classes from product_spec.md §5.
-public struct LayoutClass: Equatable, Sendable {
-    public var columns: Int
-    public var rows: Int
-
-    public init(columns: Int, rows: Int) { self.columns = columns; self.rows = rows }
-
-    public var showsSidebar: Bool { columns >= 90 }
-    public var showsRightPanel: Bool { columns >= 120 && rows >= 20 }
-    public var showsHeader: Bool { rows >= 12 }
-    /// Full 3-row player bar with artwork thumbnail, or a single line.
-    public var playerRows: Int { rows >= 20 ? 3 : 1 }
-    public var sidebarWidth: Int { columns >= 140 ? 22 : 18 }
-    public var rightPanelWidth: Int { min(44, max(34, columns / 4)) }
 }

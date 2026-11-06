@@ -12,7 +12,7 @@ public struct HarmuneConfig: Equatable, Sendable {
     /// "auto", "kitty", "iterm2", "sixel", "halfblock" or "none".
     public var graphics = "auto"
     /// "grid" or "table".
-    public var albumView = "grid"
+    public var albumView = "table"
     /// "small", "medium" or "large": the immersive view's cover.
     public var artworkSize = "medium"
     public var showVisualizer = true

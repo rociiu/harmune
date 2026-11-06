@@ -4,41 +4,20 @@ import HarmuneCore
 /// Regions computed for a terminal size. Shared by the renderer and the
 /// run loop (which needs `listHeight` for paging).
 public struct ShellLayout: Equatable, Sendable {
-    public var header: Rect?
-    public var sidebar: Rect?
+    public var header: Rect
     public var content: Rect
-    public var rightPanel: Rect?
     public var player: Rect
     public var status: Rect
 
     public init(columns: Int, rows: Int) {
-        let lc = LayoutClass(columns: columns, rows: rows)
         var area = Rect(x: 0, y: 0, width: columns, height: rows)
         (area, status) = area.splitBottom(1)
-        let playerHeight = lc.playerRows + 1  // + separator line
-        (area, player) = area.splitBottom(min(playerHeight, max(0, area.height - 1)))
-        if lc.showsHeader {
-            var h: Rect
-            (h, area) = area.splitTop(2)  // title + separator
-            header = h
-        }
-        if lc.showsSidebar {
-            var s: Rect
-            (s, area) = area.splitLeft(lc.sidebarWidth)
-            sidebar = s
-        }
-        if lc.showsRightPanel {
-            var r: Rect
-            (area, r) = area.splitRight(lc.rightPanelWidth)
-            rightPanel = r
-        }
-        content = area
+        (area, player) = area.splitBottom(2)
+        (header, content) = area.splitTop(1)
     }
 
-    /// Rows available to list items for a screen.
     public func listHeight(hasHeader: Bool) -> Int {
-        // breadcrumb + blank, column titles + rule, footer
-        max(1, content.height - 5 - (hasHeader ? 5 : 0))
+        max(0, content.height - 4 - (hasHeader ? 1 : 0))
     }
 }
 
@@ -55,14 +34,16 @@ public enum ShellView {
         let layout = ShellLayout(columns: columns, rows: rows)
         let model = screen(for: s.route, in: s)
 
-        if s.route == .nowPlaying {
+        if s.route == .nowPlaying && s.focus == .content {
             // Immersive: nothing on screen but the music.
             NowPlayingView.drawImmersive(&c, Rect(x: 0, y: 0, width: columns, height: rows - 1), s)
         } else {
-            if let h = layout.header { drawHeader(&c, h, s) }
-            if let sb = layout.sidebar { drawSidebar(&c, sb, s) }
-            drawContent(&c, layout.content, s, model, selectedIndex: selectedIndex)
-            if let r = layout.rightPanel { drawRightPanel(&c, r, s) }
+            drawHeader(&c, layout.header, s)
+            if s.focus == .views {
+                drawViews(&c, layout.content, s)
+            } else {
+                drawContent(&c, layout, s, model, selectedIndex: selectedIndex)
+            }
             drawPlayer(&c, layout.player, s)
         }
         drawStatus(&c, layout.status, s, model)
@@ -92,95 +73,58 @@ public enum ShellView {
         }
     }
 
-    // MARK: Header
-
     static func drawHeader(_ c: inout Canvas, _ r: Rect, _ s: AppState) {
         let t = s.theme
-        var x = r.x + 2
-        x += c.text("◈ ", x: x, y: r.y, style: Style(fg: t.accentPink))
-        x += c.text("harmune", x: x, y: r.y, style: t.accentStyle)
+        c.text("$", x: r.x + 2, y: r.y, style: t.accentStyle)
+        c.text("harmune", x: r.x + 4, y: r.y, style: Style(fg: t.text, bold: true))
 
-        // Search box hint, as in the design.
-        let boxX = x + 4
-        let scope = s.route.isLibrary ? "Search library…" : "Search Apple Music…"
-        if r.width > 70 {
-            c.text("/ \(scope)", x: boxX, y: r.y, maxWidth: 30, style: t.dimmed)
+        let notice: (String, Style)? = switch s.connection {
+        case .connected: nil
+        case .reconnecting: ("reconnecting…", Style(fg: t.warning))
+        case .offline: ("host offline", Style(fg: t.error))
         }
-
-        var right: [(String, Style)] = []
-        switch s.connection {
-        case .connected:
-            if let track = s.playback.track {
-                right.append((s.playback.isPlaying ? "● Playing" : "● Paused", Style(fg: s.playback.isPlaying ? t.success : t.warning)))
-                right.append(("  \(track.title) — \(track.artist)", t.secondary))
-            } else {
-                right.append(("○ Idle", t.dimmed))
-            }
-        case .reconnecting: right.append(("◌ Reconnecting…", Style(fg: t.warning)))
-        case .offline: right.append(("✕ Host offline", Style(fg: t.error)))
+        let available = r.width - 14
+        let compact = r.width < 38
+        let actions: [(KeyCommand, String)] = [(.focusNext, "views"), (.search, "search"),
+                                                (.queue, "queue"), (.playPause, "play/pause")]
+        var line = ""
+        for (command, label) in actions {
+            guard let key = s.keymap.shortcut(for: command) else { continue }
+            let action = compact ? key : "\(key) \(label)"
+            let next = line.isEmpty ? action : line + (compact ? " " : "   ") + action
+            guard textWidth(next) <= available else { break }
+            line = next
         }
-        let rightText = right.map(\.0).joined()
-        let maxRight = max(0, r.maxX - (r.width > 70 ? boxX + 32 : x + 2) - 2)
-        var rx = r.maxX - 2 - min(textWidth(rightText), maxRight)
-        var remaining = maxRight
-        for (text, style) in right where remaining > 0 {
-            let used = c.text(text, x: rx, y: r.y, maxWidth: remaining, style: style)
-            rx += used; remaining -= used
-        }
-        c.hline(r.y + 1, from: r.x, to: r.maxX, style: t.borderStyle)
+        let (label, style) = notice ?? (line, t.secondary)
+        let width = min(available, textWidth(label))
+        c.text(label, x: r.maxX - width - 2, y: r.y, maxWidth: width, style: style)
     }
 
-    // MARK: Sidebar
-
-    static func drawSidebar(_ c: inout Canvas, _ r: Rect, _ s: AppState) {
+    static func drawViews(_ c: inout Canvas, _ r: Rect, _ s: AppState) {
         let t = s.theme
-        c.fill(r, style: Style(bg: t.surface))
-        c.vline(r.maxX - 1, from: r.y, to: r.maxY, style: t.borderStyle)
-        let focused = s.focus == .sidebar
-        let active = s.stack.first ?? .home
-        var y = r.y + 1
-        var index = 0
-        for item in Route.sidebar(s.capabilities) {
-            guard y < r.maxY - 1 else { break }
-            guard let route = item else {
-                y += 1; continue
+        let routes = Route.destinations(s.capabilities)
+        c.text("Open a view", x: r.x + 2, y: r.y + 1, maxWidth: r.width - 4, style: t.accentStyle)
+        let visible = max(0, r.height - 2)
+        let first = max(0, s.viewIndex - visible + 1)
+        for (offset, route) in routes.dropFirst(first).prefix(visible).enumerated() {
+            let selected = first + offset == s.viewIndex
+            let y = r.y + 2 + offset
+            if selected {
+                c.paint(Rect(x: r.x + 2, y: y, width: r.width - 4, height: 1), style: t.selection(focused: true))
             }
-            let isActive = route == active
-            let isCursor = focused && index == s.sidebarIndex
-            let line = r.row(y - r.y).inset(dx: 1, dy: 0)
-            let rowRect = Rect(x: line.x, y: y, width: line.width - 1, height: 1)
-            if isCursor || isActive {
-                c.paint(rowRect, style: isCursor ? t.selection(focused: true) : Style(bg: t.elevated))
-            }
-            let icon = icon(for: route)
-            let style = isActive ? Style(fg: t.accent, bold: true) : (isCursor ? Style(fg: t.text) : t.secondary)
-            c.text(" \(icon)  \(route.title)", x: rowRect.x, y: y, maxWidth: rowRect.width, style: style)
-            y += 1; index += 1
-        }
-    }
-
-    static func icon(for route: Route) -> String {
-        switch route {
-        case .home: "⌂"
-        case .search: "⌕"
-        case .songs: "♪"
-        case .albums: "◉"
-        case .artists: "☺"
-        case .playlists: "≡"
-        case .recentlyPlayed: "↺"
-        case .queue: "☰"
-        case .settings: "⚙"
-        default: "·"
+            c.text((selected ? "> " : "  ") + route.title, x: r.x + 2, y: y, maxWidth: r.width - 4,
+                   style: selected ? t.accentStyle : t.secondary)
         }
     }
 
     // MARK: Content
 
-    static func drawContent(_ c: inout Canvas, _ r: Rect, _ s: AppState, _ m: ScreenModel, selectedIndex: Int) {
+    static func drawContent(_ c: inout Canvas, _ layout: ShellLayout, _ s: AppState, _ m: ScreenModel, selectedIndex: Int) {
         let t = s.theme
+        let r = layout.content
         let area = r.inset(dx: 2, dy: 0)
         var y = r.y + 1
-        let focused = s.focus == .content
+        guard y < r.maxY else { return }
 
         // Breadcrumb
         var x = area.x
@@ -196,43 +140,26 @@ public enum ShellView {
             c.text("  \(frame)", x: x, y: y, style: Style(fg: t.accent))
         }
         drawTabs(&c, m, y: y, maxX: area.maxX, minX: x + 4, theme: t)
-        y += 2
+        y += 1
 
         if let gate = authGate(route: s.route, status: s.auth) {
-            c.text(gate.title, x: area.x + 2, y: y + 1, maxWidth: area.width - 2, style: Style(fg: t.accent, bold: true))
-            for (i, line) in gate.lines.enumerated() {
-                c.text(line, x: area.x + 2, y: y + 3 + i, maxWidth: area.width - 2, style: Style(fg: t.textSecondary))
-            }
+            drawEmpty(&c, ([gate.title, ""] + gate.lines).joined(separator: "\n"),
+                      in: Rect(x: area.x, y: y, width: area.width, height: r.maxY - y),
+                      loading: false, theme: t)
             return
         }
 
-        // Detail header (album/playlist/artist)
-        if let h = m.header {
-            let art = Rect(x: area.x, y: y, width: 8, height: 4)
-            Artwork.draw(&c, art, path: h.artworkPath, seed: h.title, theme: t, art: s.art)
-            let tx = art.maxX + 2
-            c.text(h.title.uppercased(), x: tx, y: y, maxWidth: area.maxX - tx, style: Style(fg: t.text, bold: true))
-            c.text(h.subtitle, x: tx, y: y + 1, maxWidth: area.maxX - tx, style: Style(fg: t.accent))
-            c.text(h.meta, x: tx, y: y + 2, maxWidth: area.maxX - tx, style: t.secondary)
-            c.text("Enter play from track   p next   a queue", x: tx, y: y + 3, maxWidth: area.maxX - tx, style: t.dimmed)
-            y += 5
+        if let h = m.header, y < r.maxY {
+            let metadata = [h.subtitle, h.meta].filter { !$0.isEmpty }.joined(separator: " · ")
+            c.text(metadata, x: area.x, y: y, maxWidth: area.width, style: t.secondary)
+            y += 1
         }
 
-        if homeGridApplies(s, width: area.width, height: r.height) {
-            let body = Rect(x: area.x, y: y, width: area.width, height: r.maxY - 1 - y)
-            if m.rows.isEmpty {
-                drawEmpty(&c, m.empty, x: area.x + 2, y: y + 1, width: area.width - 2, loading: s.loading.contains(.home), theme: t)
-            } else {
-                drawHome(&c, body, s, m, selectedIndex: selectedIndex, focused: focused)
-            }
-            return
-        }
-
-        if gridApplies(s, width: area.width) {
+        if gridColumns(for: s, layout: layout) > 0 {
             drawGrid(&c, Rect(x: area.x, y: y, width: area.width, height: r.maxY - 1 - y), s, m,
-                     selectedIndex: selectedIndex, focused: focused)
+                     selectedIndex: selectedIndex)
             if let footer = m.footer {
-                c.text(footer, x: area.x + 2, y: r.maxY - 1, maxWidth: area.width - 2, style: t.dimmed)
+                c.text(footer, x: area.x + 2, y: r.maxY - 1, maxWidth: area.width - 2, style: t.secondary)
             }
             return
         }
@@ -241,24 +168,20 @@ public enum ShellView {
         let cellIndices = m.columns.indices.filter { area.width >= m.columns[$0].minContentWidth }
         let columns = cellIndices.map { m.columns[$0] }
         let widths = columnWidths(columns, total: area.width - 2)
-        if !columns.allSatisfy({ $0.title.isEmpty }) {
+        if y < r.maxY, !columns.allSatisfy({ $0.title.isEmpty }) {
             var cx = area.x + 2
             for (col, w) in zip(columns, widths) {
                 c.text(pad(col.title, to: w, alignRight: col.alignRight), x: cx, y: y, style: t.dimmed)
                 cx += w + 1
             }
-            y += 1
-            c.hline(y, from: area.x, to: area.maxX, style: t.borderStyle)
-            y += 1
-        } else {
-            y += 1
         }
+        y += 1
 
         let footerY = r.maxY - 1
-        let listRect = Rect(x: area.x, y: y, width: area.width, height: footerY - y - 1)
+        let listRect = Rect(x: area.x, y: y, width: area.width, height: footerY - y)
 
         if m.rows.isEmpty {
-            drawEmpty(&c, m.empty, x: area.x + 2, y: listRect.y + 1, width: area.width - 2, loading: s.loading.contains(s.route), theme: t)
+            drawEmpty(&c, m.empty, in: listRect, loading: s.loading.contains(s.route), theme: t)
         } else {
             let top = s.scroll[s.route] ?? 0
             let playingID = s.playback.track?.id
@@ -266,7 +189,7 @@ public enum ShellView {
                 let ry = listRect.y + offset
                 let index = top + offset
                 drawRow(&c, row, x: area.x, y: ry, width: area.width, columns: columns, cellIndices: cellIndices, widths: widths,
-                        selected: index == selectedIndex, focused: focused,
+                        selected: index == selectedIndex,
                         playing: row.trackID != nil && row.trackID == playingID
                             && (row.isQueueCurrent(s.queue) ?? true),
                         theme: t)
@@ -280,15 +203,16 @@ public enum ShellView {
             }
         }
 
-        if let footer = m.footer {
-            c.text(footer, x: area.x + 2, y: footerY, maxWidth: area.width - 2, style: t.dimmed)
+        if let footer = m.footer, footerY >= y {
+            c.text(footer, x: area.x + 2, y: footerY, maxWidth: area.width - 2, style: t.secondary)
         }
     }
 
-    static func drawEmpty(_ c: inout Canvas, _ text: String, x: Int, y: Int, width: Int, loading: Bool, theme t: Theme) {
+    static func drawEmpty(_ c: inout Canvas, _ text: String, in r: Rect, loading: Bool, theme t: Theme) {
         guard !loading else { return }
-        for (i, line) in text.split(separator: "\n", omittingEmptySubsequences: false).enumerated() {
-            c.text(String(line), x: x, y: y + i, maxWidth: width, style: i == 0 ? Style(fg: t.text) : t.secondary)
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        for (i, line) in lines.prefix(r.height).enumerated() {
+            c.text(String(line), x: r.x, y: r.y + i, maxWidth: r.width, style: i == 0 ? Style(fg: t.text) : t.secondary)
         }
     }
 
@@ -299,7 +223,9 @@ public enum ShellView {
         guard x >= minX else {
             // Too narrow for all of them: show the active one.
             let label = m.tabs[m.activeTab]
-            c.text(label, x: maxX - textWidth(label), y: y, style: Style(fg: t.accent, bold: true))
+            if maxX - textWidth(label) >= minX {
+                c.text(label, x: maxX - textWidth(label), y: y, style: t.accentStyle)
+            }
             return
         }
         for (i, tab) in m.tabs.enumerated() {
@@ -308,77 +234,21 @@ public enum ShellView {
         }
     }
 
-    // MARK: Home rows
-
-    static let homeTileWidth = 14
-    static let homeArtHeight = 7
-    static let homeSectionHeight = homeArtHeight + 4  // title + art + 2 text lines + gap
-
-    static func homeVisibleSections(height: Int) -> Int { max(1, height / homeSectionHeight) }
-
-    /// Rows of artwork need room. Small terminals and filtered lists get the plain list.
-    static func homeGridApplies(_ s: AppState, width: Int, height: Int) -> Bool {
-        s.route == .home && width >= homeTileWidth + 6 && height >= homeSectionHeight + 4 && (s.filters[.home] ?? "").isEmpty
-    }
-
-    static func drawHome(_ c: inout Canvas, _ r: Rect, _ s: AppState, _ m: ScreenModel, selectedIndex: Int, focused: Bool) {
-        let t = s.theme
-        let sections = AppStore.sections(in: m.rows)
-        let top = s.scroll[.home] ?? 0
-        let tiles = max(1, (r.width - 2) / (homeTileWidth + 2))
-        for (position, range) in sections.enumerated().dropFirst(top).prefix(homeVisibleSections(height: r.height)) {
-            let y = r.y + (position - top) * homeSectionHeight
-            if range.lowerBound > 0, case .header(let title) = m.rows[range.lowerBound - 1].kind {
-                c.text(title, x: r.x + 2, y: y, style: Style(fg: t.accentBlue, bold: true))
-            }
-            // Slide the row along so the selection stays visible.
-            let first = range.contains(selectedIndex) ? max(0, selectedIndex - range.lowerBound - tiles + 1) : 0
-            for (slot, index) in range.dropFirst(first).prefix(tiles).enumerated() {
-                let x = r.x + 2 + slot * (homeTileWidth + 2)
-                let tileY = y + 1
-                if index == selectedIndex {
-                    c.paint(Rect(x: x - 1, y: tileY, width: homeTileWidth + 2, height: homeArtHeight + 2), style: t.selection(focused: focused))
-                }
-                let (title, subtitle, path): (String, String, String?)
-                switch m.rows[index].kind {
-                case .album(let a): (title, subtitle, path) = (a.title, a.artist, a.artwork?.path)
-                case .playlist(let p): (title, subtitle, path) = (p.name, p.curator ?? "", p.artwork?.path)
-                default: continue
-                }
-                Artwork.draw(&c, Rect(x: x, y: tileY, width: homeTileWidth, height: homeArtHeight), path: path, seed: title, theme: t, art: s.art)
-                c.text(title, x: x, y: tileY + homeArtHeight, maxWidth: homeTileWidth, style: Style(fg: t.text, bold: index == selectedIndex))
-                c.text(subtitle, x: x, y: tileY + homeArtHeight + 1, maxWidth: homeTileWidth, style: t.secondary)
-            }
-            if range.count > tiles {
-                let current = range.contains(selectedIndex) ? selectedIndex - range.lowerBound + 1 : 1
-                let more = "\(current)/\(range.count)"
-                c.text(more, x: r.maxX - textWidth(more) - 1, y: y, style: t.dimmed)
-            }
-        }
-    }
-
-    // MARK: Album grid
+    // MARK: Optional album grid
 
     static let gridTileWidth = 16
     static let gridArtHeight = 8
     static let gridTileHeight = gridArtHeight + 3  // art + title + artist + gap
 
-    static func gridApplies(_ s: AppState, width: Int) -> Bool {
-        s.route == .albums && s.albumGrid && width >= gridTileWidth + 6
-    }
-
     /// Tiles per row for the current frame, or 0 when the grid isn't shown.
     public static func gridColumns(for s: AppState, layout: ShellLayout) -> Int {
         let width = layout.content.width - 4
-        if s.route == .home {
-            guard homeGridApplies(s, width: width, height: layout.content.height) else { return 0 }
-            return max(1, (width - 2) / (homeTileWidth + 2))
-        }
-        guard gridApplies(s, width: width) else { return 0 }
+        guard s.route == .albums, s.albumGrid, width >= gridTileWidth + 6,
+              layout.listHeight(hasHeader: false) >= gridTileHeight else { return 0 }
         return max(1, (width - 2) / (gridTileWidth + 2))
     }
 
-    static func drawGrid(_ c: inout Canvas, _ r: Rect, _ s: AppState, _ m: ScreenModel, selectedIndex: Int, focused: Bool) {
+    static func drawGrid(_ c: inout Canvas, _ r: Rect, _ s: AppState, _ m: ScreenModel, selectedIndex: Int) {
         let t = s.theme
         let columns = max(1, (r.width - 2) / (gridTileWidth + 2))
         // Matches AppStore.adjustScroll (listHeight = this height - 1).
@@ -396,7 +266,7 @@ public enum ShellView {
             let selected = index == selectedIndex
             if selected {
                 let frame = Rect(x: x - 1, y: y, width: gridTileWidth + 2, height: gridTileHeight - 1)
-                c.paint(frame, style: t.selection(focused: focused))
+                c.paint(frame, style: t.selection(focused: true))
             }
             Artwork.draw(&c, Rect(x: x, y: y, width: gridTileWidth, height: gridArtHeight),
                          path: album.artwork?.path, seed: album.title, theme: t, art: s.art)
@@ -414,22 +284,22 @@ public enum ShellView {
     }
 
     static func drawRow(_ c: inout Canvas, _ row: Row, x: Int, y: Int, width: Int, columns: [Column], cellIndices: [Int], widths: [Int],
-                        selected: Bool, focused: Bool, playing: Bool, theme t: Theme) {
+                        selected: Bool, playing: Bool, theme t: Theme) {
         if case .header(let title) = row.kind {
             c.text(title, x: x + 2, y: y, style: Style(fg: t.accentBlue, bold: true))
             return
         }
         if selected {
-            c.paint(Rect(x: x, y: y, width: width, height: 1), style: t.selection(focused: focused))
-            if focused { c.text("▌", x: x, y: y, style: Style(fg: t.accent)) }
+            c.paint(Rect(x: x, y: y, width: width, height: 1), style: t.selection(focused: true))
+            c.text(">", x: x, y: y, style: t.accentStyle)
         }
-        if playing { c.text("▶", x: x + 1, y: y, style: Style(fg: t.accentPink)) }
+        if playing { c.text("▶", x: x + 1, y: y, style: Style(fg: t.accent)) }
         var cx = x + 2
         for (i, (col, w)) in zip(columns, widths).enumerated() {
             let cell = cellIndices[i]
             let value = cell < row.cells.count ? row.cells[cell] : ""
             let primary = cell == 1 || columns.count == 1 || (cell == 0 && col.flex > 0)
-            let style: Style = if playing { Style(fg: primary || cell == 0 ? t.accentPink : t.textSecondary) }
+            let style: Style = if playing { Style(fg: primary || cell == 0 ? t.accent : t.textSecondary) }
                 else if primary { Style(fg: t.text) }
                 else { t.secondary }
             c.text(pad(value, to: w, alignRight: col.alignRight), x: cx, y: y, maxWidth: w, style: style)
@@ -450,109 +320,49 @@ public enum ShellView {
         return widths
     }
 
-    // MARK: Right panel
-
-    static func drawRightPanel(_ c: inout Canvas, _ r: Rect, _ s: AppState) {
-        let t = s.theme
-        c.fill(r, style: Style(bg: t.surface))
-        c.vline(r.x, from: r.y, to: r.maxY, style: t.borderStyle)
-        let area = r.inset(dx: 2, dy: 1)
-        guard let track = s.playback.track else {
-            c.text("Nothing playing", x: area.x + 1, y: area.y + 1, style: t.dimmed)
-            return
-        }
-        let artSize = min(area.width - 2, 16)
-        let art = Rect(x: area.x + 1, y: area.y, width: artSize, height: artSize / 2)
-        Artwork.draw(&c, art, path: track.artwork?.path, seed: track.album, theme: t, art: s.art)
-        var y = art.maxY + 1
-        c.text(track.title, x: area.x + 1, y: y, maxWidth: area.width - 1, style: Style(fg: t.text, bold: true)); y += 1
-        c.text(track.artist, x: area.x + 1, y: y, maxWidth: area.width - 1, style: Style(fg: t.accent)); y += 1
-        c.text(track.album, x: area.x + 1, y: y, maxWidth: area.width - 1, style: t.secondary); y += 1
-        y += 1
-        if s.prefs.showVisualizer {
-            y += Visualizer.draw(&c, Rect(x: area.x + 1, y: y, width: area.width - 1, height: 1), s, compact: true)
-        }
-        y += 1
-
-        // Upcoming from the current container / queue.
-        let entries = s.queue.entries
-        guard let current = s.queue.currentIndex else { return }
-        let start = max(0, current - 1)
-        for (i, e) in entries.enumerated().dropFirst(start) {
-            guard y < area.maxY else { break }
-            let isCurrent = i == current
-            let line = Rect(x: area.x, y: y, width: area.width, height: 1)
-            if isCurrent { c.paint(line, style: Style(bg: t.elevated)) }
-            c.text(pad(String(i + 1), to: 3, alignRight: true), x: area.x, y: y, style: t.dimmed)
-            c.text(isCurrent ? "▶" : " ", x: area.x + 4, y: y, style: Style(fg: t.accentPink))
-            c.text(e.track.title, x: area.x + 6, y: y, maxWidth: area.width - 13,
-                   style: isCurrent ? Style(fg: t.accentPink) : (i < current ? t.dimmed : Style(fg: t.text)))
-            c.text(pad(formatTime(e.track.duration), to: 6, alignRight: true), x: area.maxX - 6, y: y, style: t.dimmed)
-            y += 1
-        }
-    }
-
-    // MARK: Player bar
+    // MARK: Player
 
     static func drawPlayer(_ c: inout Canvas, _ r: Rect, _ s: AppState) {
+        guard r.height >= 2 else { return }
         let t = s.decorativeTheme
-        guard r.height > 0 else { return }
-        c.hline(r.y, from: r.x, to: r.maxX, style: t.borderStyle)
-        let body = Rect(x: r.x, y: r.y + 1, width: r.width, height: r.height - 1)
-        guard body.height > 0 else { return }
-        c.fill(body, style: Style(bg: t.surface))
+        c.hline(r.y, from: r.x + 2, to: r.maxX - 2, style: t.borderStyle)
+        let y = r.y + 1
+        let x = r.x + 2
+        let right = r.maxX - 2
         let p = s.playback
         guard let track = p.track else {
-            c.text("♪  Nothing playing — press / to find music", x: body.x + 2, y: body.y + body.height / 2,
-                   maxWidth: body.width - 4, style: t.dimmed)
+            c.text("■ Idle · / search", x: x, y: y, maxWidth: right - x, style: t.secondary)
             return
         }
+
         let position = p.position(at: s.now)
-        let times = s.prefs.showDuration ? "\(formatTime(position)) / \(formatTime(track.duration))" : formatTime(position)
-        let flags = (p.shuffle ? "⤨ " : "  ") + (p.repeat == .one ? "↻¹" : p.repeat == .all ? "↻ " : "  ")
-
-        if body.height >= 3 {
-            let art = Rect(x: body.x + 2, y: body.y, width: 6, height: 3)
-            Artwork.draw(&c, art, path: track.artwork?.path, seed: track.album, theme: t, art: s.art)
-            let tx = art.maxX + 2
-            let infoWidth = max(10, min(36, body.width / 3))
-            c.text(track.title, x: tx, y: body.y, maxWidth: infoWidth, style: Style(fg: t.text, bold: true))
-            c.text("\(track.artist) — \(track.album)", x: tx, y: body.y + 1, maxWidth: infoWidth, style: t.secondary)
-            c.text(p.isPlaying ? "▶ playing" : "⏸ paused", x: tx, y: body.y + 2, style: Style(fg: p.isPlaying ? t.success : t.warning))
-
-            let barX = tx + infoWidth + 2
-            let rightW = textWidth(times) + 6
-            let barW = body.maxX - barX - rightW - 2
-            if barW >= 10 {
-                if s.prefs.showProgress {
-                    drawProgress(&c, x: barX, y: body.y + 1, width: barW, fraction: position / max(1, track.duration), theme: t)
-                }
-                c.text(times, x: barX + barW + 2, y: body.y + 1, style: t.secondary)
-                c.text(flags, x: barX + barW + 2 + textWidth(times) + 1, y: body.y + 1, style: Style(fg: t.accent))
-                c.text("◀◀    \(p.isPlaying ? "Ⅱ" : "▶")    ▶▶", x: barX + barW / 2 - 7, y: body.y + 2, style: t.secondary)
-            } else {
-                c.text(times, x: body.maxX - textWidth(times) - 2, y: body.y + 1, style: t.secondary)
+        let elapsed = formatTime(position)
+        let times = s.prefs.showDuration ? "\(elapsed) / \(formatTime(track.duration))" : elapsed
+        let timeX = right - textWidth(times)
+        let barWidth = s.prefs.showProgress && r.width >= 56 ? min(24, r.width / 5) : 0
+        let barX = timeX - barWidth - 2
+        let trackEnd = barWidth > 0 ? barX - 2 : timeX - 2
+        let marker = p.isPlaying ? "▶" : "Ⅱ"
+        let status = r.width >= 46 ? (p.isPlaying ? "\(marker) Playing  " : "\(marker) Paused  ") : marker + " "
+        let labelX = x + c.text(status, x: x, y: y, maxWidth: max(0, trackEnd - x), style: t.accentStyle)
+        if labelX < trackEnd {
+            let titleWidth = c.text(track.title, x: labelX, y: y, maxWidth: trackEnd - labelX, style: Style(fg: t.text, bold: true))
+            let artistX = labelX + titleWidth
+            if trackEnd - artistX >= 6 {
+                c.text(" · " + track.artist, x: artistX, y: y, maxWidth: trackEnd - artistX, style: t.secondary)
             }
-        } else {
-            let icon = p.isPlaying ? "▶" : "⏸"
-            let x = body.x + 1
-            let label = "\(icon) \(track.title) — \(track.artist)"
-            let labelW = min(textWidth(label), body.width / 2)
-            c.text(label, x: x, y: body.y, maxWidth: labelW, style: Style(fg: t.text))
-            let barX = x + labelW + 2
-            let barW = body.maxX - barX - textWidth(times) - 3
-            if barW >= 6, s.prefs.showProgress {
-                drawProgress(&c, x: barX, y: body.y, width: barW, fraction: position / max(1, track.duration), theme: t)
-            }
-            c.text(times, x: body.maxX - textWidth(times) - 1, y: body.y, style: t.secondary)
         }
+        if barWidth > 0 {
+            drawProgress(&c, x: barX, y: y, width: barWidth, fraction: position / max(1, track.duration), theme: t)
+        }
+        c.text(times, x: max(x, timeX), y: y, maxWidth: right - x, style: t.secondary)
     }
 
     static func drawProgress(_ c: inout Canvas, x: Int, y: Int, width: Int, fraction: Double, theme t: Theme) {
         let f = min(max(fraction, 0), 1)
         let filled = Int((Double(width - 1) * f).rounded())
-        c.hline(y, from: x, to: x + filled, char: "━", style: Style(fg: t.accentPink))
-        c.hline(y, from: x + filled + 1, to: x + width, char: "━", style: Style(fg: t.border))
+        c.hline(y, from: x, to: x + filled, char: "━", style: Style(fg: t.accent))
+        c.hline(y, from: x + filled + 1, to: x + width, char: "━", style: t.dimmed)
         c.text("●", x: x + filled, y: y, style: Style(fg: t.text))
     }
 
@@ -561,16 +371,7 @@ public enum ShellView {
     static func drawStatus(_ c: inout Canvas, _ r: Rect, _ s: AppState, _ m: ScreenModel) {
         let t = s.theme
         c.fill(r, style: Style(bg: t.surface))
-        let modeLabel: String, modeColor: TermColor
-        switch s.mode {
-        case .normal: (modeLabel, modeColor) = ("NORMAL", t.accent)
-        case .search: (modeLabel, modeColor) = ("SEARCH", t.accentBlue)
-        case .filter: (modeLabel, modeColor) = ("FILTER", t.warning)
-        case .command: (modeLabel, modeColor) = ("COMMAND", t.accentPink)
-        }
-        var x = r.x
-        x += c.text(" \(modeLabel) ", x: x, y: r.y, style: Style(fg: t.background, bg: modeColor, bold: true))
-        x += 1
+        var x = r.x + 2
 
         switch s.mode {
         case .search, .filter, .command:
@@ -579,7 +380,13 @@ public enum ShellView {
             case .filter: "filter: "
             default: ":"
             }
-            if s.mode == .search {
+            let modeLabel = switch s.mode {
+            case .search: "SEARCH"
+            case .filter: "FILTER"
+            default: "COMMAND"
+            }
+            x += c.text(modeLabel, x: x, y: r.y, style: t.accentStyle) + 2
+            if s.mode == .search, r.width >= 32 {
                 let scope = s.searchScope == .catalog ? " Apple Music " : " Library "
                 x += c.text(scope, x: x, y: r.y, style: Style(fg: t.text, bg: t.elevated))
                 x += 1
@@ -594,19 +401,29 @@ public enum ShellView {
             break
         }
 
-        x += c.text(s.route.title.uppercased(), x: x, y: r.y, style: t.secondary)
-        x += 2
+        let help = s.keymap.shortcut(for: .help).map { $0 + " keys" } ?? ""
+        let helpWidth = min(r.width / 2, textWidth(help))
+        let helpX = r.maxX - helpWidth - 2
+        c.text(help, x: helpX, y: r.y, maxWidth: helpWidth, style: t.accentStyle)
+        let pendingWidth = min(r.width / 4, textWidth(s.pendingKeys))
+        let pendingX = helpX - pendingWidth - 2
+        c.text(s.pendingKeys, x: pendingX, y: r.y, maxWidth: pendingWidth, style: Style(fg: t.warning))
+        let available = pendingX - x - 1
+
         if let toast = s.toast {
-            c.text(toast.message, x: x, y: r.y, maxWidth: r.maxX - x - 1,
-                   style: Style(fg: toast.isError ? t.error : t.success))
+            c.text(toast.message, x: x, y: r.y, maxWidth: available, style: Style(fg: toast.isError ? t.error : t.success))
+        } else if s.focus == .views {
+            c.text("↑↓ move   Enter open   Esc close", x: x, y: r.y, maxWidth: available, style: t.secondary)
         } else {
-            let hints = m.hints + "   : command   ? help"
-            let hx = max(x, r.maxX - textWidth(hints) - 1)
-            c.text(hints, x: hx, y: r.y, maxWidth: r.maxX - hx - 1, style: t.dimmed)
-        }
-        if !s.pendingKeys.isEmpty {
-            let px = r.maxX - textWidth(s.pendingKeys) - 2
-            c.text(" \(s.pendingKeys) ", x: px - 1, y: r.y, style: Style(fg: t.background, bg: t.warning, bold: true))
+            if let key = s.keymap.shortcut(for: .commandMode) {
+                let prompt = r.width >= 32 ? key + " command" : key
+                x += c.text(prompt, x: x, y: r.y, maxWidth: available, style: t.accentStyle) + 3
+            }
+            let actions = m.hints.components(separatedBy: "   ")
+            for action in actions {
+                guard x + textWidth(action) <= pendingX - 1 else { break }
+                x += c.text(action, x: x, y: r.y, style: t.secondary) + 3
+            }
         }
     }
 
@@ -640,6 +457,7 @@ public enum ShellView {
             let lines = HelpContent.lines(s.keymap)
             let w = min(c.width - 4, 76)
             let h = min(c.height - 2, lines.count + 4)
+            let keyWidth = min(18, max(5, w / 3))
             let box = Rect(x: (c.width - w) / 2, y: (c.height - h) / 2, width: w, height: h)
             drawBox(&c, box, title: "Keyboard", theme: t)
             for (i, line) in lines.dropFirst(s.helpScroll).prefix(h - 4).enumerated() {
@@ -647,8 +465,8 @@ public enum ShellView {
                 if line.keys.isEmpty {
                     c.text(line.action, x: box.x + 3, y: y, style: Style(fg: t.accentBlue, bold: true))
                 } else {
-                    c.text(pad(line.keys, to: 18), x: box.x + 3, y: y, style: Style(fg: t.accent))
-                    c.text(line.action, x: box.x + 22, y: y, maxWidth: box.width - 25, style: Style(fg: t.text))
+                    c.text(pad(line.keys, to: keyWidth), x: box.x + 2, y: y, style: t.accentStyle)
+                    c.text(line.action, x: box.x + keyWidth + 3, y: y, maxWidth: box.width - keyWidth - 5, style: t.secondary)
                 }
             }
             let more = lines.count + 4 > h

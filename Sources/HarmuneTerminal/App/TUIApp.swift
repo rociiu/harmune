@@ -139,8 +139,7 @@ public final class TUIApp {
         let dirty = store.tick()
         frameCounter += 1
         let s = store.state
-        let size = terminal.size()
-        let showsVisualizer = s.route == .nowPlaying || LayoutClass(columns: size.columns, rows: size.rows).showsRightPanel
+        let showsVisualizer = s.route == .nowPlaying && s.focus == .content
         // Nobody is watching an unfocused window, so only animate in a focused one.
         let animating = s.playback.isPlaying && focused && s.prefs.showVisualizer && !s.prefs.reducedMotion && showsVisualizer
         let spinner = s.loading.contains(s.route) && frameCounter % max(1, s.prefs.maxFPS / 10) == 0

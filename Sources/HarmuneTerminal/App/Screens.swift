@@ -87,7 +87,7 @@ private func sortLabel(_ s: AppState, _ route: Route) -> String {
     }
 }
 
-private let songHints = "Enter play   p next   a queue   / search   F filter"
+private let songHints = "Enter play   a queue   p next   F filter"
 
 public func screen(for route: Route, in s: AppState) -> ScreenModel {
     let data = s.data[route]
@@ -112,7 +112,7 @@ public func screen(for route: Route, in s: AppState) -> ScreenModel {
         }
         model = ScreenModel(breadcrumb: "Home", columns: [.flex("", 3), .flex("", 2, minContent: 50), .fixed("", 10, right: true, minContent: 70)],
                             rows: rows, header: nil,
-                            empty: "Welcome to Harmune\n\nYour music lives here.\n\nPress / to discover something new.",
+                            empty: "Nothing to resume yet.\n\n/ search   gl songs   ga albums",
                             hints: "Enter open   / search   gl songs   ga albums")
 
     case .search:
@@ -133,14 +133,14 @@ public func screen(for route: Route, in s: AppState) -> ScreenModel {
         model = ScreenModel(breadcrumb: s.searchQuery.isEmpty ? "Search" : "Search / \(s.searchQuery)",
                             columns: songColumns, rows: rows, header: nil,
                             empty: s.searchQuery.isEmpty ? "Press / to search \(scope)." : "No \(tab == .all ? "results" : tab.title.lowercased()) for “\(s.searchQuery)”.",
-                            hints: "H/L category   " + songHints,
+                            hints: songHints + "   H/L category",
                             tabs: SearchTab.allCases.map(\.title), activeTab: tab.rawValue)
 
     case .songs:
         var rows: [Row] = []
         if case .tracks(let tracks, _) = data { rows = tracks.enumerated().map { songRow($1, $0) } }
         model = ScreenModel(breadcrumb: "Library / Songs", columns: songColumns, rows: rows, header: nil,
-                            empty: "Your library has no songs yet.", hints: "o sort   " + songHints,
+                            empty: "Your library has no songs yet.", hints: songHints + "   o sort",
                             footer: rows.isEmpty ? nil : "\(rows.count) songs\(sortLabel(s, .songs))")
 
     case .albums:
@@ -153,7 +153,7 @@ public func screen(for route: Route, in s: AppState) -> ScreenModel {
         model = ScreenModel(breadcrumb: "Library / Albums",
                             columns: [.fixed("#", 4, right: true), .flex("ALBUM", 3), .flex("ARTIST", 2, minContent: 45), .fixed("YEAR", 6, right: true, minContent: 60)],
                             rows: rows, header: nil, empty: "No albums in your library.",
-                            hints: "Enter open   p next   a queue   t grid/list   o sort   F filter",
+                            hints: "Enter open   a queue   p next   t grid/list   o sort   F filter",
                             footer: rows.isEmpty ? nil : "\(rows.count) albums\(sortLabel(s, .albums))")
 
     case .recentlyPlayed:
@@ -209,16 +209,17 @@ public func screen(for route: Route, in s: AppState) -> ScreenModel {
 
     case .album(let id):
         var rows: [Row] = [], header: DetailHeader?
+        var artistColumnWidth = Int.max
         if case .albumDetail(let d) = data {
             rows = d.tracks.enumerated().map { songRow($1, $0, container: .album, id: id, number: $1.trackNumber) }
+            if d.tracks.contains(where: { $0.artist != d.album.artist }) { artistColumnWidth = 50 }
             let total = d.tracks.reduce(0) { $0 + $1.duration }
             header = DetailHeader(title: d.album.title, subtitle: d.album.artist,
                                   meta: [d.album.year.map(String.init), d.album.genre, "\(d.tracks.count) songs", formatTime(total)]
-                                    .compactMap { $0 }.joined(separator: " · "),
-                                  artworkPath: d.album.artwork?.path)
+                                    .compactMap { $0 }.joined(separator: " · "))
         }
         model = ScreenModel(breadcrumb: "Library / Albums / \(header?.title ?? "…")",
-                            columns: [.fixed("#", 4, right: true), .flex("TITLE", 3), .flex("ARTIST", 2, minContent: 70),
+                            columns: [.fixed("#", 4, right: true), .flex("TITLE", 3), .flex("ARTIST", 2, minContent: artistColumnWidth),
                                       .flex("ALBUM", 1, minContent: .max), .fixed("TIME", 6, right: true)],
                             rows: rows, header: header, empty: "", hints: songHints)
 
@@ -227,8 +228,7 @@ public func screen(for route: Route, in s: AppState) -> ScreenModel {
         if case .playlistDetail(let d) = data {
             rows = d.tracks.enumerated().map { songRow($1, $0, container: .playlist, id: id) }
             header = DetailHeader(title: d.playlist.name, subtitle: d.playlist.curator ?? "",
-                                  meta: "\(d.tracks.count) songs · \(formatTime(d.tracks.reduce(0) { $0 + $1.duration }))",
-                                  artworkPath: d.playlist.artwork?.path)
+                                  meta: "\(d.tracks.count) songs · \(formatTime(d.tracks.reduce(0) { $0 + $1.duration }))")
         }
         model = ScreenModel(breadcrumb: "Library / Playlists / \(header?.title ?? "…")", columns: songColumns,
                             rows: rows, header: header, empty: "", hints: songHints)
@@ -240,8 +240,7 @@ public func screen(for route: Route, in s: AppState) -> ScreenModel {
             rows += d.topSongs.enumerated().map { songRow($1, $0) }
             rows.append(Row(kind: .header("ALBUMS"), cells: []))
             rows += d.albums.map { Row(kind: .album($0), cells: ["", $0.title, $0.year.map(String.init) ?? "", "", ""]) }
-            header = DetailHeader(title: d.artist.name, subtitle: "Artist", meta: "\(d.albums.count) albums",
-                                  artworkPath: d.albums.first?.artwork?.path)
+            header = DetailHeader(title: d.artist.name, subtitle: "Artist", meta: "\(d.albums.count) albums")
         }
         model = ScreenModel(breadcrumb: "Library / Artists / \(header?.title ?? "…")", columns: songColumns,
                             rows: rows, header: header, empty: "", hints: songHints)

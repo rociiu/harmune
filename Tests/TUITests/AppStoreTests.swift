@@ -202,10 +202,10 @@ func type(_ store: AppStore, _ text: String) async {
         #expect(quit == .user)
     }
 
-    @Test func sidebarFocus() async {
+    @Test func viewSwitcherFocus() async {
         let store = await makeStore()
         await press(store, "<tab>")
-        #expect(store.state.focus == .sidebar)
+        #expect(store.state.focus == .views)
         await press(store, "jjj<cr>")  // Home, Search, Songs, Albums
         #expect(store.state.route == .albums)
         #expect(store.state.focus == .content)
@@ -360,35 +360,32 @@ func type(_ store: AppStore, _ text: String) async {
         #expect(reloaded.state.commandHistory == ["albums", "songs"])
     }
 
-    @Test func recentlyPlayedAndSidebarFollowCapabilities() async {
+    @Test func recentlyPlayedAndViewSwitcherFollowCapabilities() async {
         let store = await makeStore()
         await press(store, "gr")
         #expect(store.state.route == .recentlyPlayed)
         #expect(!screen(for: .recentlyPlayed, in: store.state).rows.isEmpty)
-        #expect(Route.sidebar([]).compactMap { $0 }.contains(.recentlyPlayed) == false)
-        #expect(Route.sidebar([.recentlyPlayed]).compactMap { $0 }.contains(.recentlyPlayed))
+        #expect(Route.destinations([]).contains(.recentlyPlayed) == false)
+        #expect(Route.destinations([.recentlyPlayed]).contains(.recentlyPlayed))
     }
 
-    @Test func homeRowsMoveIn2D() async {
+    @Test func homeUsesListNavigation() async throws {
         let store = await makeStore()
-        store.gridColumns = 4
-        store.listHeight = 30
         let rows = screen(for: .home, in: store.state).rows
-        let sections = AppStore.sections(in: rows)
-        #expect(sections.count >= 2)
-        #expect(store.selectedIndex == sections[0].lowerBound)
-        await press(store, "l")
-        #expect(store.selectedIndex == sections[0].lowerBound + 1)
-        await press(store, "j")
-        #expect(store.selectedIndex == sections[1].lowerBound + 1)
+        let first = try #require(rows.indices.first { rows[$0].isSelectable })
+        let second = try #require(rows.indices.first { $0 > first && rows[$0].isSelectable })
+        #expect(store.selectedIndex == first)
+        await press(store, "<down>")
+        #expect(store.selectedIndex == second)
         await press(store, "k")
-        #expect(store.selectedIndex == sections[0].lowerBound + 1)
+        #expect(store.selectedIndex == first)
         await press(store, "h")
+        #expect(store.state.focus == .views)
+        await press(store, "<esc>")
         #expect(store.state.focus == .content)
-        await press(store, "h")  // already on the first tile: on to the sidebar
-        #expect(store.state.focus == .sidebar)
-        let frame = ShellView.render(store.state, columns: 140, rows: 40, selectedIndex: store.selectedIndex).plainText
-        #expect(frame.contains("RECENTLY PLAYED"))
+        let frame = ShellView.render(store.state, columns: 140, rows: 40, selectedIndex: store.selectedIndex)
+        #expect(frame.plainText.contains("RECENTLY PLAYED"))
+        #expect(frame.artworkRequests.isEmpty)
     }
 
     @Test func authGateBlocksUntilConnected() async {
@@ -439,7 +436,7 @@ func type(_ store: AppStore, _ text: String) async {
         let store = await makeStore()
         await press(store, "ga<cr><cr>v")
         let text = ShellView.render(store.state, columns: 120, rows: 40, selectedIndex: 0).plainText
-        #expect(text.contains("NOW PLAYING"))
+        #expect(text.contains("Now playing"))
         #expect(!text.contains("⌂  Home"))
         store.setDynamicAccent(.rgb(1, 2, 3))
         #expect(store.state.decorativeTheme.accent == .rgb(1, 2, 3))

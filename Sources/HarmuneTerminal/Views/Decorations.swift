@@ -56,14 +56,13 @@ enum ArtworkPlaceholder {
 enum Visualizer {
     static let levels: [Character] = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
 
-    /// Draws one row of bars; returns rows used.
-    @discardableResult
-    static func draw(_ c: inout Canvas, _ r: Rect, _ s: AppState, compact: Bool = false) -> Int {
-        guard r.width > 0, r.height > 0, let track = s.playback.track else { return 0 }
+    /// Draws one row of bars.
+    static func draw(_ c: inout Canvas, _ r: Rect, _ s: AppState) {
+        guard r.width > 0, r.height > 0, let track = s.playback.track else { return }
         // Reduced motion: a still frame.
         let t = s.prefs.reducedMotion ? 0 : s.playback.position(at: s.now)
         let seed = Double(stableHash(track.id) % 1000) / 100
-        let bars = compact ? r.width : min(r.width, 48)
+        let bars = min(r.width, 48)
         let x0 = r.x + (r.width - bars) / 2
         for i in 0..<bars {
             let fi = Double(i)
@@ -81,7 +80,6 @@ enum Visualizer {
             }
             c.text(String(levels[level]), x: x0 + i, y: r.y, style: style)
         }
-        return 1
     }
 }
 
@@ -89,11 +87,12 @@ enum NowPlayingView {
     /// Full-screen Now Playing: header, large cover, progress and visualizer.
     static func drawImmersive(_ c: inout Canvas, _ r: Rect, _ s: AppState) {
         let t = s.decorativeTheme
-        var x = r.x + 2
-        x += c.text("◈ ", x: x, y: r.y, style: Style(fg: t.accentPink))
-        c.text("harmune", x: x, y: r.y, style: t.accentStyle)
-        let label = "♪ NOW PLAYING"
-        c.text(label, x: r.maxX - textWidth(label) - 2, y: r.y, style: t.accentStyle)
+        c.text("$", x: r.x + 2, y: r.y, style: t.accentStyle)
+        c.text("harmune", x: r.x + 4, y: r.y, style: Style(fg: t.text, bold: true))
+        let label = "Now playing"
+        if r.width >= 28 {
+            c.text(label, x: r.maxX - textWidth(label) - 2, y: r.y, style: t.secondary)
+        }
         draw(&c, Rect(x: r.x, y: r.y + 1, width: r.width, height: r.height - 1), s)
     }
 
@@ -111,6 +110,7 @@ enum NowPlayingView {
 
         var y = art.maxY + 1
         func centered(_ text: String, _ style: Style) {
+            guard y < r.maxY else { return }
             let w = min(textWidth(text), r.width - 2)
             c.text(text, x: r.x + (r.width - w) / 2, y: y, maxWidth: r.width - 2, style: style)
             y += 1

@@ -22,9 +22,8 @@ public final class AppStore {
     public var onPersist: (String, String, String) -> Void = { _, _, _ in }
 
     private var gridActive: Bool {
-        gridColumns > 0 && (state.route == .albums || state.route == .home) && state.focus == .content
+        gridColumns > 0 && state.route == .albums && state.focus == .content
     }
-    private var homeGridActive: Bool { gridActive && state.route == .home }
 
     private let reconnect: (@Sendable () async throws -> any MusicBackend)?
     private var resolver: KeyResolver
@@ -181,7 +180,7 @@ public final class AppStore {
 
     private var keyContext: KeyContext {
         if gridActive { return .grid }
-        return state.focus == .sidebar ? .list : state.route.keyContext
+        return state.focus == .views ? .list : state.route.keyContext
     }
 
     public func handle(_ key: Key) {
@@ -235,22 +234,20 @@ public final class AppStore {
         let n = count ?? 1
         switch command {
         case .moveDown:
-            if homeGridActive { moveHome(sections: n) } else { move(by: gridActive ? n * gridColumns : n) }
+            move(by: gridActive ? n * gridColumns : n)
         case .moveUp:
-            if homeGridActive { moveHome(sections: -n) } else { move(by: gridActive ? -n * gridColumns : -n) }
+            move(by: gridActive ? -n * gridColumns : -n)
         case .filterNext: move(by: n)
         case .filterPrevious: move(by: -n)
         case .moveLeft:
             if selectedIndex <= firstSelectable(in: screen(for: state.route, in: state).rows) {
-                state.focus = .sidebar
-                syncSidebarIndex()
-            } else if homeGridActive {
-                moveHome(items: -n)
+                state.focus = .views
+                syncViewIndex()
             } else {
                 move(by: -n)
             }
         case .moveRight:
-            if homeGridActive { moveHome(items: n) } else { move(by: n) }
+            move(by: n)
         case .moveFirst: if let count { select(line: count) } else { move(by: Int.min / 2) }
         case .moveLast: if let count { select(line: count) } else { move(by: Int.max / 2) }
         case .halfPageDown: move(by: max(1, listHeight / 2) * n)
@@ -258,31 +255,38 @@ public final class AppStore {
         case .pageDown: move(by: max(1, listHeight - 1) * n)
         case .pageUp: move(by: -max(1, listHeight - 1) * n)
         case .center:
+            guard state.focus == .content else { break }
             let rows = screen(for: state.route, in: state).rows.count
             state.scroll[state.route] = max(0, min(selectedIndex - listHeight / 2, max(0, rows - listHeight)))
 
         case .focusNext, .focusPrevious:
-            state.focus = state.focus == .sidebar ? .content : .sidebar
-            if state.focus == .sidebar { syncSidebarIndex() }
+            state.focus = state.focus == .views ? .content : .views
+            if state.focus == .views { syncViewIndex() }
         case .goBack:
-            if state.focus == .sidebar { break }
-            if state.stack.count > 1 { pop() } else { state.focus = .sidebar; syncSidebarIndex() }
+            if state.focus == .views {
+                state.focus = .content
+            } else if state.stack.count > 1 {
+                pop()
+            } else {
+                state.focus = .views
+                syncViewIndex()
+            }
         case .openSelected:
-            if state.focus == .sidebar {
-                if let route = sidebarItems[safe: state.sidebarIndex] { go(route) }
+            if state.focus == .views {
+                if let route = destinations[safe: state.viewIndex] { go(route) }
             } else if authGate(route: state.route, status: state.auth)?.canConnect == true {
                 connect()
             } else {
                 activateSelection()
             }
         case .close:
-            if let filter = state.filters[state.route], !filter.isEmpty {
+            if state.focus == .views {
+                state.focus = .content
+            } else if let filter = state.filters[state.route], !filter.isEmpty {
                 state.filters[state.route] = nil
                 resetSelection()
             } else if state.stack.count > 1 {
                 pop()
-            } else if state.focus == .sidebar {
-                state.focus = .content
             }
         case .quit:
             if state.stack.count > 1 { pop() } else { quit(.user) }
@@ -290,9 +294,11 @@ public final class AppStore {
         case .search:
             state.searchScope = state.route.isLibrary ? .library : .catalog
             if state.route != .search { go(.search) }
+            state.focus = .content
             state.mode = .search
             state.input = state.searchQuery
         case .filter:
+            state.focus = .content
             state.mode = .filter
             state.input = state.filters[state.route] ?? ""
         case .commandMode:
@@ -386,7 +392,7 @@ public final class AppStore {
     public func go(_ route: Route) {
         state.stack = [route]
         state.focus = .content
-        syncSidebarIndex()
+        syncViewIndex()
         load(route)
     }
 
@@ -402,11 +408,11 @@ public final class AppStore {
         adjustScroll()
     }
 
-    private func syncSidebarIndex() {
-        if let i = sidebarItems.firstIndex(of: state.stack.first ?? .home) { state.sidebarIndex = i }
+    private func syncViewIndex() {
+        state.viewIndex = destinations.firstIndex(of: state.stack.first ?? .home) ?? 0
     }
 
-    private var sidebarItems: [Route] { Route.sidebar(state.capabilities).compactMap { $0 } }
+    private var destinations: [Route] { Route.destinations(state.capabilities) }
 
     public func load(_ route: Route, force: Bool = false) {
         if !force, state.data[route] != nil || state.loading.contains(route) { return }
@@ -497,6 +503,7 @@ public final class AppStore {
     public var selectedIndex: Int { state.selection[state.route] ?? firstSelectable(in: screen(for: state.route, in: state).rows) }
 
     var selectedRow: Row? {
+        guard state.focus == .content else { return nil }
         let rows = screen(for: state.route, in: state).rows
         return rows.indices.contains(selectedIndex) ? rows[selectedIndex] : nil
     }
@@ -504,9 +511,9 @@ public final class AppStore {
     private func firstSelectable(in rows: [Row]) -> Int { rows.firstIndex(where: \.isSelectable) ?? 0 }
 
     private func move(by delta: Int) {
-        if state.focus == .sidebar {
-            let count = sidebarItems.count
-            state.sidebarIndex = min(max(0, state.sidebarIndex + max(-count, min(count, delta))), count - 1)
+        if state.focus == .views {
+            let count = destinations.count
+            state.viewIndex = min(max(0, state.viewIndex + max(-count, min(count, delta))), count - 1)
             return
         }
         let rows = screen(for: state.route, in: state).rows
@@ -525,38 +532,9 @@ public final class AppStore {
         loadMoreIfNeeded()
     }
 
-    /// Home's rows of tiles: `items` moves within a row, `sections` between
-    /// rows, keeping the same position in the row where it can.
-    private func moveHome(sections delta: Int = 0, items: Int = 0) {
-        let rows = screen(for: .home, in: state).rows
-        let sections = Self.sections(in: rows)
-        let current = selectedIndex
-        guard let at = sections.firstIndex(where: { $0.contains(current) }) else { return }
-        let target: Int
-        if delta != 0 {
-            let next = sections[min(max(0, at + delta), sections.count - 1)]
-            target = min(next.lowerBound + (current - sections[at].lowerBound), next.upperBound)
-        } else {
-            target = min(max(sections[at].lowerBound, current + items), sections[at].upperBound)
-        }
-        state.selection[.home] = target
-        adjustScroll()
-    }
-
-    /// Runs of selectable rows, split by header rows.
-    nonisolated static func sections(in rows: [Row]) -> [ClosedRange<Int>] {
-        var out: [ClosedRange<Int>] = []
-        var start: Int?
-        for (i, row) in rows.enumerated() {
-            if row.isSelectable { start = start ?? i }
-            else if let s = start { out.append(s...(i - 1)); start = nil }
-        }
-        if let start { out.append(start...(rows.count - 1)) }
-        return out
-    }
-
     private func select(line: Int) {
-        state.selection[state.route] = 0
+        if state.focus == .views { state.viewIndex = 0 }
+        else { state.selection[state.route] = 0 }
         move(by: line - 1)
     }
 
@@ -573,18 +551,7 @@ public final class AppStore {
 
     private func adjustScroll() {
         let route = state.route
-        if homeGridActive {
-            // Scroll is measured in sections.
-            let visible = ShellView.homeVisibleSections(height: listHeight + 1)
-            let sections = Self.sections(in: screen(for: .home, in: state).rows)
-            let at = sections.firstIndex { $0.contains(selectedIndex) } ?? 0
-            var top = state.scroll[route] ?? 0
-            if at < top { top = at }
-            if at >= top + visible { top = at - visible + 1 }
-            state.scroll[route] = max(0, top)
-            return
-        }
-        if gridActive {
+        if gridColumns > 0, route == .albums {
             // Scroll is measured in tile rows.
             let visible = max(1, listHeight / ShellView.gridTileHeight)
             let row = selectedIndex / gridColumns
