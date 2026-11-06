@@ -36,10 +36,15 @@ public protocol MusicBackend: Sendable {
     func artist(id: String) async throws -> ArtistDetail
     func playlist(id: String) async throws -> PlaylistDetail
     func home() async throws -> HomeSections
+    func favorites() async throws -> Favorites
 
     // State
     func playbackState() async -> PlaybackState
     func queueState() async -> QueueState
     /// Each call returns a new independent stream of changes.
     func events() async -> AsyncStream<BackendEvent>
+}
+
+public extension MusicBackend {
+    func favorites() async throws -> Favorites { throw HarmuneError.unsupported("Favorites") }
 }

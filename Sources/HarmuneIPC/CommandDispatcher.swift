@@ -58,6 +58,7 @@ public struct CommandDispatcher: Sendable {
         case Action.artist: return try JSONValue(encoding: await b.artist(id: payload.decode(IDPayload.self).id))
         case Action.playlist: return try JSONValue(encoding: await b.playlist(id: payload.decode(IDPayload.self).id))
         case Action.home: return try JSONValue(encoding: await b.home())
+        case Action.favorites: return try JSONValue(encoding: await b.favorites())
 
         default:
             throw HarmuneError.unsupported("Action '\(action)'")

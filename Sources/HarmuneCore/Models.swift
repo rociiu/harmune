@@ -117,6 +117,12 @@ public struct SearchQuery: Codable, Sendable, Hashable {
     }
 }
 
+public struct Favorites: Codable, Sendable, Equatable {
+    public var songs: [Track]
+    public var albums: [Album]
+    public init(songs: [Track], albums: [Album]) { self.songs = songs; self.albums = albums }
+}
+
 public struct SearchResults: Codable, Sendable, Hashable {
     public var songs: [Track]
     public var albums: [Album]

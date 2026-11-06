@@ -156,6 +156,21 @@ public func screen(for route: Route, in s: AppState) -> ScreenModel {
                             hints: "Enter open   a queue   p next   t grid/list   o sort   F filter",
                             footer: rows.isEmpty ? nil : "\(rows.count) albums\(sortLabel(s, .albums))")
 
+    case .favorites:
+        var rows: [Row] = []
+        if case .favorites(let items) = data {
+            if !items.songs.isEmpty {
+                rows.append(Row(kind: .header("SONGS"), cells: []))
+                rows += items.songs.enumerated().map { songRow($1, $0) }
+            }
+            if !items.albums.isEmpty {
+                rows.append(Row(kind: .header("ALBUMS"), cells: []))
+                rows += items.albums.map { Row(kind: .album($0), cells: ["", $0.title, $0.artist, "", ""]) }
+            }
+        }
+        model = ScreenModel(breadcrumb: "Library / Favorites", columns: songColumns, rows: rows, header: nil,
+                            empty: "No favorite songs or albums in your library.", hints: "Enter open/play   F filter")
+
     case .recentlyPlayed:
         var rows: [Row] = []
         if case .albums(let albums, _) = data {

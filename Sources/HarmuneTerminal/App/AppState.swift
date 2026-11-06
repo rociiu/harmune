@@ -2,12 +2,13 @@ import Foundation
 import HarmuneCore
 
 public enum Route: Hashable, Sendable {
-    case home, search, songs, albums, artists, playlists, recentlyPlayed, queue, nowPlaying, settings
+    case home, search, songs, albums, artists, playlists, favorites, recentlyPlayed, queue, nowPlaying, settings
     case album(String), playlist(String), artist(String)
 
     /// Destinations available in the view switcher.
     static func destinations(_ capabilities: Set<Capability>) -> [Route] {
         var routes: [Route] = [.home, .search, .songs, .albums, .artists, .playlists]
+        if capabilities.contains(.favorites) { routes.append(.favorites) }
         if capabilities.contains(.recentlyPlayed) { routes.append(.recentlyPlayed) }
         return routes + [.queue, .settings]
     }
@@ -20,6 +21,7 @@ public enum Route: Hashable, Sendable {
         case .albums: "Albums"
         case .artists: "Artists"
         case .playlists: "Playlists"
+        case .favorites: "Favorites"
         case .recentlyPlayed: "Recently Played"
         case .queue: "Queue"
         case .nowPlaying: "Now Playing"
@@ -32,7 +34,7 @@ public enum Route: Hashable, Sendable {
 
     var isLibrary: Bool {
         switch self {
-        case .songs, .albums, .artists, .playlists, .recentlyPlayed, .album, .playlist, .artist: true
+        case .songs, .albums, .artists, .playlists, .favorites, .recentlyPlayed, .album, .playlist, .artist: true
         default: false
         }
     }
@@ -206,6 +208,7 @@ public enum RouteData: Sendable, Equatable {
     case playlistDetail(PlaylistDetail)
     case artistDetail(ArtistDetail)
     case home(HomeSections)
+    case favorites(Favorites)
     case search(SearchResults)
 }
 

@@ -96,7 +96,7 @@ import Testing
     @Test func everyRouteRendersAtEveryBreakpoint() async {
         let store = await makeStore()
         await press(store, "ga<cr><cr>")  // play an album so the player is populated
-        let routes: [String] = ["gh", "gl", "ga", "gA", "gp", "gq", "v", "ga<cr>"]
+        let routes: [String] = ["gh", "gl", "ga", "gA", "gp", "gf", "gq", "v", "ga<cr>"]
         for keys in routes {
             await press(store, "<esc>")
             await press(store, keys)

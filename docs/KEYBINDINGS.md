@@ -29,6 +29,7 @@ A count repeats motions, such as `5j` or `3]`. Multi-key sequences such as `gg` 
 | `ga` | Albums |
 | `gA` | Artists |
 | `gp` | Playlists |
+| `gf` | Favorites (if supported) |
 | `gr` | Recently Played |
 | `gq` | Queue |
 | `gn` | Now Playing |

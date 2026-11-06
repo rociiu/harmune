@@ -28,6 +28,7 @@ extension Keymap {
             HelpEntry(.albums, action: "Albums"),
             HelpEntry(.artists, action: "Artists"),
             HelpEntry(.playlists, action: "Playlists"),
+            HelpEntry(.favorites, action: "Favorites (if supported)"),
             HelpEntry(.recentlyPlayed, action: "Recently Played"),
             HelpEntry(.queue, action: "Queue"),
             HelpEntry(.nowPlaying, action: "Now Playing"),

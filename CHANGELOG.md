@@ -12,6 +12,6 @@ First version with a real Apple Music host.
 
 ### Known limitations
 
-- Favorites aren't supported.
+- Favorites browsing covers songs and albums. Manage favorites in Apple Music.
 - The visualizer is decorative: MusicKit doesn't expose audio.
 - No volume control: MusicKit has no API for it on macOS.

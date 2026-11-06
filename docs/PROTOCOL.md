@@ -70,6 +70,7 @@ The result has `protocolVersion`, `hostVersion` and `capabilities`. To receive e
 | `library.artists`, `.playlists` | `{"offset":0,"limit":100}` | `Page` |
 | `browse.album`, `.artist`, `.playlist` | `{"id":"…"}` | detail object |
 | `browse.home` | | `HomeSections` |
+| `browse.favorites` | | `Favorites` (library songs and albums) |
 | `service.status` | | `ServiceStatus` |
 | `service.stop` | `{"force":false}` | fails with `invalidArgument` if music is playing and `force` is false |
 

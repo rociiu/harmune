@@ -246,9 +246,17 @@ func type(_ store: AppStore, _ text: String) async {
         #expect(store.state.route == .home)
     }
 
-    @Test func unsupportedFeaturesToastInsteadOfFailingSilently() async {
+    @Test func favoritesBrowseAndPlay() async {
         let store = await makeStore()
         await press(store, "gf")
+        #expect(store.state.route == .favorites)
+        #expect(Route.destinations([.favorites]).contains(.favorites))
+        #expect(!Route.destinations([]).contains(.favorites))
+        let rows = screen(for: .favorites, in: store.state).rows
+        #expect(rows.contains { $0.trackID != nil })
+        await press(store, "<cr>")
+        #expect(store.state.playback.track?.id == rows.first(where: { $0.isSelectable })?.trackID)
+        await press(store, "f")
         #expect(store.state.toast?.isError == true)
     }
 

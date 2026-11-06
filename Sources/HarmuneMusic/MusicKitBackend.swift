@@ -47,7 +47,7 @@ public final class MusicKitBackend: MusicBackend {
     // MARK: - Session
 
     public func capabilities() -> Set<Capability> {
-        [.recommendations, .recentlyPlayed, .librarySearch, .queueRemove, .queueMove]
+        [.recommendations, .recentlyPlayed, .librarySearch, .queueRemove, .queueMove, .favorites]
     }
 
     public func authStatus() async -> AuthStatus {
@@ -363,6 +363,10 @@ public final class MusicKitBackend: MusicBackend {
     }
 
     // MARK: - Browse
+
+    public func favorites() async throws -> Favorites {
+        try await call("favorites") { try await FavoriteLibrary.load() }
+    }
 
     public func search(_ q: SearchQuery) async throws -> SearchResults {
         try await call("search \(q.scope.rawValue)") {

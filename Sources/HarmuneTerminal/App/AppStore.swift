@@ -332,7 +332,8 @@ public final class AppStore {
         case .nowPlaying, .toggleImmersive:
             toggleImmersive()
         case .favorites:
-            toast("Favorites aren't supported yet", error: true)
+            if state.capabilities.contains(.favorites) { go(.favorites) }
+            else { toast("Favorites aren't supported by this backend", error: true) }
         case .recentlyPlayed:
             if state.capabilities.contains(.recentlyPlayed) { go(.recentlyPlayed) }
             else { toast("Recently Played isn't supported by this backend", error: true) }
@@ -368,7 +369,7 @@ public final class AppStore {
             toast("Repeat \(mode.rawValue)")
         case .toggleFavorite:
             if !state.capabilities.contains(.favorites) { toast("Favorites aren't supported by this backend", error: true) }
-            else { toast("Favorites aren't available yet", error: true) }
+            else { toast("Edit favorites in Apple Music", error: true) }
 
         case .addToQueue: enqueueSelection(.last)
         case .playNext: enqueueSelection(.next)
@@ -456,6 +457,7 @@ public final class AppStore {
                 guard let self else { return }
                 self.state.queue = await self.backend.queueState()
             }
+        case .favorites: fetcher = { .favorites(try await $0.favorites()) }
         case .recentlyPlayed: fetcher = { .albums(try await $0.home().recentlyPlayed, nextOffset: nil) }
         case .nowPlaying, .settings: fetcher = nil
         }

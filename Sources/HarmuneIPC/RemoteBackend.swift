@@ -87,6 +87,10 @@ public final class RemoteBackend: MusicBackend {
     public func playlist(id: String) async throws -> PlaylistDetail { try await fetch(Action.playlist, IDPayload(id: id), as: PlaylistDetail.self) }
     public func home() async throws -> HomeSections { try await client.request(Action.home, as: HomeSections.self, timeout: IPCClient.slowTimeout) }
 
+    public func favorites() async throws -> Favorites {
+        try await client.request(Action.favorites, as: Favorites.self, timeout: IPCClient.slowTimeout)
+    }
+
     public func playbackState() async -> PlaybackState {
         (try? await client.request(Action.state, as: PlaybackState.self)) ?? .idle
     }

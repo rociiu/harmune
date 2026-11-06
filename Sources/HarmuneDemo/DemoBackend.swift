@@ -289,6 +289,10 @@ public actor DemoBackend: MusicBackend {
         return PlaylistDetail(playlist: p, tracks: library.tracks(inPlaylist: id))
     }
 
+    public func favorites() -> Favorites {
+        Favorites(songs: Array(library.tracks.prefix(6)), albums: Array(library.albums.suffix(6)))
+    }
+
     public func home() async throws -> HomeSections {
         try await simulateLatency()
         return HomeSections(recentlyPlayed: Array(library.albums.prefix(6)),

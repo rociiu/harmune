@@ -89,6 +89,7 @@ public enum Action {
     public static let artist = "browse.artist"
     public static let playlist = "browse.playlist"
     public static let home = "browse.home"
+    public static let favorites = "browse.favorites"
 
     public static let serviceStatus = "service.status"
     public static let serviceStop = "service.stop"
