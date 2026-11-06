@@ -163,3 +163,19 @@ import UniformTypeIdentifiers
         #expect(ArtworkStore.png(from: Data("not an image".utf8)) == nil)
     }
 }
+
+@Suite struct ArtworkCacheTests {
+    @Test func pruneDeletesOldestFirst() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("hm-prune-\(UUID().uuidString.prefix(6))")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        for (i, name) in ["old", "middle", "new"].enumerated() {
+            let file = dir.appendingPathComponent(name)
+            try Data(count: 100).write(to: file)
+            try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSinceNow: Double(i - 3) * 1000)], ofItemAtPath: file.path)
+        }
+        #expect(ArtworkStore.prune(directory: dir, limit: 1000) == 0)
+        #expect(ArtworkStore.prune(directory: dir, limit: 150) == 2)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: dir.path) == ["new"])
+    }
+}

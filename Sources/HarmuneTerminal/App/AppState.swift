@@ -2,12 +2,16 @@ import Foundation
 import HarmuneCore
 
 public enum Route: Hashable, Sendable {
-    case home, search, songs, albums, artists, playlists, queue, nowPlaying
+    case home, search, songs, albums, artists, playlists, recentlyPlayed, queue, nowPlaying, settings
     case album(String), playlist(String), artist(String)
 
-    /// Sidebar order (spec §4.1). Favorites/Recently Played stay hidden
-    /// until the backend supports them.
-    static let sidebar: [Route?] = [.home, .search, nil, .songs, .albums, .artists, .playlists, nil, .queue]
+    /// Sidebar order (spec §4.1); nil is a gap. Recently Played stays hidden
+    /// unless the backend supports it, and Favorites until one does.
+    static func sidebar(_ capabilities: Set<Capability>) -> [Route?] {
+        var items: [Route?] = [.home, .search, nil, .songs, .albums, .artists, .playlists]
+        if capabilities.contains(.recentlyPlayed) { items.append(.recentlyPlayed) }
+        return items + [nil, .queue, .settings]
+    }
 
     var title: String {
         switch self {
@@ -17,8 +21,10 @@ public enum Route: Hashable, Sendable {
         case .albums: "Albums"
         case .artists: "Artists"
         case .playlists: "Playlists"
+        case .recentlyPlayed: "Recently Played"
         case .queue: "Queue"
         case .nowPlaying: "Now Playing"
+        case .settings: "Settings"
         case .album: "Album"
         case .playlist: "Playlist"
         case .artist: "Artist"
@@ -27,17 +33,116 @@ public enum Route: Hashable, Sendable {
 
     var isLibrary: Bool {
         switch self {
-        case .songs, .albums, .artists, .playlists, .album, .playlist, .artist: true
+        case .songs, .albums, .artists, .playlists, .recentlyPlayed, .album, .playlist, .artist: true
         default: false
         }
     }
 
     var keyContext: KeyContext { self == .queue ? .queue : .list }
+
+    /// The name `general.start_page` and the saved last view use.
+    public var pageName: String? {
+        switch self {
+        case .home: "home"
+        case .search: "search"
+        case .songs: "songs"
+        case .albums: "albums"
+        case .artists: "artists"
+        case .playlists: "playlists"
+        case .queue: "queue"
+        default: nil
+        }
+    }
+
+    public static func page(_ name: String) -> Route? {
+        [Route.home, .search, .songs, .albums, .artists, .playlists, .queue].first { $0.pageName == name }
+    }
 }
 
 public enum Focus: Sendable { case sidebar, content }
 
 public enum InputMode: Sendable, Equatable { case normal, search, filter, command }
+
+/// Result categories in Search (spec §8.2).
+public enum SearchTab: Int, CaseIterable, Sendable {
+    case all, songs, albums, artists, playlists
+
+    var title: String {
+        switch self {
+        case .all: "All"
+        case .songs: "Songs"
+        case .albums: "Albums"
+        case .artists: "Artists"
+        case .playlists: "Playlists"
+        }
+    }
+
+    var kinds: [MediaKind] {
+        switch self {
+        case .all: MediaKind.allCases
+        case .songs: [.songs]
+        case .albums: [.albums]
+        case .artists: [.artists]
+        case .playlists: [.playlists]
+        }
+    }
+
+    func shows(_ kind: MediaKind) -> Bool { kinds.contains(kind) }
+}
+
+public enum ArtworkSize: String, CaseIterable, Sendable {
+    case small, medium, large
+
+    /// Share of the immersive view's height the cover takes.
+    var fraction: Double {
+        switch self {
+        case .small: 0.35
+        case .medium: 0.5
+        case .large: 0.65
+        }
+    }
+
+    var next: ArtworkSize {
+        switch self {
+        case .small: .medium
+        case .medium: .large
+        case .large: .small
+        }
+    }
+}
+
+/// What the person can change in Settings or `config.toml`.
+public struct Preferences: Sendable, Equatable {
+    public var showArtwork = true
+    public var showVisualizer = true
+    public var showBorders = true
+    public var dynamicColors = true
+    public var reducedMotion = false
+    public var albumGrid = true
+    public var showProgress = true
+    public var showDuration = true
+    public var artworkSize = ArtworkSize.medium
+    public var maxFPS = 20
+    public init() {}
+}
+
+/// A row in Settings.
+public enum SettingKey: String, CaseIterable, Sendable {
+    case theme, artwork, artworkSize, visualizer, dynamicColors, albumView, borders, reducedMotion
+
+    var label: String {
+        switch self {
+        case .theme: "Theme"
+        case .artwork: "Album artwork"
+        case .artworkSize: "Immersive artwork size"
+        case .visualizer: "Decorative visualizer"
+        case .dynamicColors: "Colors from artwork"
+        case .albumView: "Albums view"
+        case .borders: "Borders"
+        case .reducedMotion: "Reduced motion"
+        }
+    }
+}
 
 /// A selectable line in the content list.
 public struct Row: Sendable, Equatable {
@@ -48,6 +153,7 @@ public struct Row: Sendable, Equatable {
         case artist(Artist)
         case playlist(Playlist)
         case queueEntry(QueueEntry, index: Int)
+        case setting(SettingKey)
         case header(String)
         case message(String)
     }
@@ -111,9 +217,22 @@ public struct Toast: Sendable, Equatable {
     public var expires: Date
 }
 
+/// A list to choose from. Theme pickers preview as the selection moves.
+public struct Picker: Sendable, Equatable {
+    public enum Purpose: Sendable, Equatable {
+        case theme(original: Theme)
+        case sort(Route)
+    }
+    public var title: String
+    public var options: [String]
+    public var index: Int
+    public var purpose: Purpose
+}
+
 public enum Overlay: Sendable, Equatable {
     case help
     case confirm(String, ConfirmAction)
+    case picker(Picker)
 }
 
 public enum ConfirmAction: Sendable, Equatable { case clearQueue, quitAndStopHost }
@@ -125,7 +244,7 @@ public struct AppState: Sendable {
     // Remote (mirrored from the backend)
     public var playback = PlaybackState.idle
     public var queue = QueueState()
-    public var auth = AuthStatus(state: .notDetermined)
+    public var auth = AuthStatus(state: .authorized)
     public var capabilities: Set<Capability> = []
     public var connection = ConnectionState.connected
 
@@ -140,27 +259,48 @@ public struct AppState: Sendable {
     public var data: [Route: RouteData] = [:]
     public var loading: Set<Route> = []
     public var errors: [Route: String] = [:]
+    public var sort: [Route: SortKey] = [:]
 
     // Input
     public var mode = InputMode.normal
     public var input = ""
     public var searchQuery = ""
     public var searchScope = SearchScope.catalog
+    public var searchTab = SearchTab.all
     public var filters: [Route: String] = [:]
     public var pendingKeys = ""
     public var commandHistory: [String] = []
 
     // Chrome
     public var overlay: Overlay?
+    public var helpScroll = 0
     public var toast: Toast?
     public var theme = Theme.midnight
+    public var themes = Theme.all
+    public var keymap = Keymap.standard
     public var now = Date()
-    /// Album list as an artwork grid (`t` toggles).
-    public var albumGrid = true
+    public var prefs = Preferences()
+    /// Picked from the current cover; only decorative elements use it.
+    public var dynamicAccent: TermColor?
     /// Graphics mode and decoded artwork, maintained by the run loop.
     public var art = ArtworkSnapshot()
 
     public init() {}
 
     public var route: Route { stack.last ?? .home }
+
+    /// Album list as an artwork grid (`t` toggles).
+    public var albumGrid: Bool {
+        get { prefs.albumGrid }
+        set { prefs.albumGrid = newValue }
+    }
+
+    /// The theme for decorative elements: the cover's accent when there is one.
+    var decorativeTheme: Theme {
+        guard prefs.dynamicColors, let dynamicAccent, !theme.usesReverseSelection else { return theme }
+        var t = theme
+        t.accent = dynamicAccent
+        t.accentPink = dynamicAccent
+        return t
+    }
 }

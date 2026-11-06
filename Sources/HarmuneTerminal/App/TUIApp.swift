@@ -18,6 +18,10 @@ public final class TUIApp {
     // Artwork
     private var art: ArtworkSnapshot
     private var kitty: KittyGraphics
+    private var inline: InlineGraphics?
+    private var lastThemeName = ""
+    private var accentPath: String?
+    private var focused = true
     private var decoding: Set<ArtworkKey> = []
     private var waiting: [ArtworkKey] = []
     private var missingSince: [String: Date] = [:]
@@ -27,17 +31,27 @@ public final class TUIApp {
     public init(backend: any MusicBackend, theme: Theme,
                 reconnect: (@Sendable () async throws -> any MusicBackend)? = nil,
                 colorMode: ColorMode = ColorMode.detect(ProcessInfo.processInfo.environment),
-                graphics: GraphicsMode? = nil, reducedMotion: Bool = false, albumGrid: Bool = true,
-                keymap: Keymap = .standard, sequenceTimeout: TimeInterval = 0.6, startRoute: Route = .home) {
+                graphics: GraphicsMode? = nil, themes: [Theme] = Theme.all, preferences: Preferences = Preferences(),
+                keymap: Keymap = .standard, sequenceTimeout: TimeInterval = 0.6, startRoute: Route = .home,
+                historyPath: String? = nil, persist: @escaping (String, String, String) -> Void = { _, _, _ in }) {
         let env = ProcessInfo.processInfo.environment
-        store = AppStore(backend: backend, theme: colorMode == .none ? .mono : theme, keymap: keymap,
-                         sequenceTimeout: sequenceTimeout, startRoute: startRoute, reconnect: reconnect)
+        store = AppStore(backend: backend, theme: colorMode == .none ? .mono : theme, themes: themes, preferences: preferences,
+                         keymap: keymap, sequenceTimeout: sequenceTimeout, startRoute: startRoute,
+                         historyPath: historyPath, reconnect: reconnect)
+        store.onPersist = persist
         renderer = Renderer(colorMode: colorMode)
-        art = ArtworkSnapshot(mode: graphics ?? GraphicsMode.detect(env, colorMode: colorMode), reducedMotion: reducedMotion)
+        art = ArtworkSnapshot(mode: graphics ?? GraphicsMode.detect(env, colorMode: colorMode))
         kitty = KittyGraphics(transmitByPath: KittyGraphics.canTransmitByPath(env))
+        switch art.mode {
+        case .iterm2: inline = InlineGraphics(format: .iterm2)
+        case .sixel: inline = InlineGraphics(format: .sixel, cellPixels: terminal.cellPixels())
+        default: break
+        }
         store.setArtwork(art)
-        store.setAlbumGrid(albumGrid)
     }
+
+    /// The top-level view on screen, saved for `restore_last_view`.
+    public var currentRoot: Route { store.state.stack.first ?? .home }
 
     /// Shows a message once the UI is up (e.g. config warnings).
     public func notify(_ message: String, error: Bool = false) { store.toast(message, error: error) }
@@ -67,9 +81,10 @@ public final class TUIApp {
         resize.resume()
         sources.append(resize)
 
-        // 10 Hz tick: toasts, key timeouts, progress and animation.
+        // Toasts, key timeouts, progress and animation.
+        let interval = 1000 / max(1, min(60, store.state.prefs.maxFPS))
         let timer = DispatchSource.makeTimerSource(queue: .main)
-        timer.schedule(deadline: .now() + .milliseconds(100), repeating: .milliseconds(100))
+        timer.schedule(deadline: .now() + .milliseconds(interval), repeating: .milliseconds(interval))
         timer.setEventHandler { [weak self] in MainActor.assumeIsolated { self?.tick() } }
         timer.resume()
         sources.append(timer)
@@ -87,30 +102,76 @@ public final class TUIApp {
     private func readInput() {
         let bytes = terminal.readAvailable()
         guard !bytes.isEmpty else { return }
-        for key in decoder.feed(bytes) { store.handle(key) }
+        for key in decoder.feed(bytes) { handle(key) }
         // A lone ESC is the Escape key unless more bytes follow quickly.
         escapeFlush?.cancel()
         let flush = DispatchWorkItem { [weak self] in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                for key in self.decoder.flushEscape() { self.store.handle(key) }
+                for key in self.decoder.flushEscape() { self.handle(key) }
             }
         }
         escapeFlush = flush
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(25), execute: flush)
     }
 
+    private func handle(_ key: Key) {
+        switch key {
+        case .focusIn: focused = true
+        case .focusOut: focused = false
+        case .ctrl("z") where store.state.mode == .normal: suspend()
+        default: store.handle(key)
+        }
+    }
+
+    /// Ctrl+Z: hands the terminal back to the shell until `fg`.
+    private func suspend() {
+        if art.mode == .kitty { TerminalIO.write(kitty.clearAll()) }
+        terminal.restore()
+        signal(SIGTSTP, SIG_DFL)
+        raise(SIGTSTP)  // returns after SIGCONT
+        try? terminal.enter()
+        renderer.invalidate()
+        render()
+    }
+
     private func tick() {
-        let wantsFrame = store.tick()
+        let dirty = store.tick()
         frameCounter += 1
         let s = store.state
-        let animating = s.playback.isPlaying
-            && (s.route == .nowPlaying || LayoutClass(columns: terminal.size().columns, rows: terminal.size().rows).showsRightPanel)
-        let spinner = s.loading.contains(s.route)
-        // Animate at 10 fps; otherwise refresh progress once a second.
-        if animating || spinner || (wantsFrame && (!s.playback.isPlaying || frameCounter % 10 == 0)) {
+        let size = terminal.size()
+        let showsVisualizer = s.route == .nowPlaying || LayoutClass(columns: size.columns, rows: size.rows).showsRightPanel
+        // Nobody is watching an unfocused window, so only animate in a focused one.
+        let animating = s.playback.isPlaying && focused && s.prefs.showVisualizer && !s.prefs.reducedMotion && showsVisualizer
+        let spinner = s.loading.contains(s.route) && frameCounter % max(1, s.prefs.maxFPS / 10) == 0
+        // Otherwise refresh progress about once a second.
+        let progress = s.playback.isPlaying && frameCounter % max(1, s.prefs.maxFPS) == 0
+        if animating || spinner || dirty && !s.playback.isPlaying || progress {
             render()
         }
+    }
+
+    /// Takes a decorative accent from the current cover when the track changes.
+    private func updateDynamicAccent() {
+        let s = store.state
+        let path = s.prefs.dynamicColors && s.art.enabled ? s.playback.track?.artwork?.path : nil
+        guard path != accentPath else { return }
+        accentPath = path
+        guard let path else {
+            store.setDynamicAccent(nil)
+            return
+        }
+        let background = s.theme.background
+        Task.detached(priority: .utility) { [weak self] in
+            let accent = PixelGrid.load(path: path, width: 24, height: 24).flatMap { DynamicColor.accent(from: $0, on: background) }
+            await self?.finishAccent(path: path, accent)
+        }
+    }
+
+    private func finishAccent(path: String, _ accent: TermColor?) {
+        guard path == accentPath else { return }
+        store.setDynamicAccent(accent)
+        scheduleRender()
     }
 
     private func scheduleRender() {
@@ -130,10 +191,20 @@ public final class TUIApp {
         let hasHeader = screen(for: store.state.route, in: store.state).header != nil
         let height = layout.listHeight(hasHeader: hasHeader)
         if store.listHeight != height { store.listHeight = height }
+        store.terminalRows = rows
+        updateDynamicAccent()
         store.gridColumns = ShellView.gridColumns(for: store.state, layout: layout)
         let canvas = ShellView.render(store.state, columns: columns, rows: rows, selectedIndex: store.selectedIndex)
+        // Inline images were painted over the old theme's cells.
+        if inline != nil, store.state.theme.name != lastThemeName { renderer.invalidate() }
+        lastThemeName = store.state.theme.name
+        inline?.removed(canvas.imagePlacements).forEach { renderer.damage($0) }
         var out = renderer.frame(canvas)
         if art.mode == .kitty { out += kitty.sync(canvas.imagePlacements, fullRedraw: renderer.lastFrameWasFull) }
+        if inline != nil {
+            if renderer.lastFrameWasFull { inline?.reset() }
+            out += inline?.place(canvas.imagePlacements) ?? ""
+        }
         TerminalIO.write(out)
         request(canvas.artworkRequests)
     }
@@ -167,7 +238,7 @@ public final class TUIApp {
         decoding.remove(key)
         if exists {
             missingSince[key.path] = nil
-            if art.mode == .kitty { art.available.insert(key.path) }
+            if art.mode.usesPlacements { art.available.insert(key.path) }
             if let grid {
                 if art.decoded.count >= Self.maxDecodedImages { art.decoded.removeAll() }
                 art.decoded[key] = grid

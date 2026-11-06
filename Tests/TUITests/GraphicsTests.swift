@@ -135,3 +135,98 @@ import Testing
         #expect(!c.plainText.contains("ALBUM "))  // no table header
     }
 }
+
+@Suite struct InlineGraphicsTests {
+    func tempPNG() throws -> String {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("hm-inline-\(UUID().uuidString.prefix(6))")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let path = dir.appendingPathComponent("a.png").path
+        DemoArtwork.write(try #require(DemoArtwork.render(key: "album-1")), to: path)
+        return path
+    }
+
+    @Test func detectsInlineTerminals() {
+        #expect(GraphicsMode.detect(["TERM_PROGRAM": "iTerm.app"], colorMode: .truecolor) == .iterm2)
+        #expect(GraphicsMode.detect(["TERM_PROGRAM": "WezTerm"], colorMode: .truecolor) == .iterm2)
+        #expect(GraphicsMode.detect(["TERM": "foot"], colorMode: .truecolor) == .sixel)
+        #expect(GraphicsMode.detect(["TERM_PROGRAM": "iTerm.app", "TMUX": "/x"], colorMode: .truecolor) == .halfblock)
+        #expect(GraphicsMode.detect(["HARMUNE_GRAPHICS": "sixel"], colorMode: .truecolor) == .sixel)
+    }
+
+    @Test func itermPlacesOnceThenReportsRemovedRects() throws {
+        let path = try tempPNG()
+        var g = InlineGraphics(format: .iterm2)
+        let a = ImagePlacement(path: path, rect: Rect(x: 2, y: 3, width: 16, height: 8))
+        let out = g.place([a])
+        #expect(out.contains("\u{1B}[4;3H"))
+        #expect(out.contains("\u{1B}]1337;File=inline=1;"))
+        #expect(out.contains("width=16;height=8;preserveAspectRatio=0"))
+        #expect(out.hasSuffix("\u{07}\u{1B}8"))
+        #expect(g.removed([a]).isEmpty)
+        #expect(g.place([a]).isEmpty)
+        #expect(g.removed([]) == [a.rect])
+        #expect(!g.place([a]).isEmpty)  // returns after being removed
+        g.reset()
+        #expect(!g.place([a]).isEmpty)  // the screen was cleared
+    }
+
+    @Test func missingFilesAreSkipped() {
+        var g = InlineGraphics(format: .iterm2)
+        #expect(g.place([ImagePlacement(path: "/nonexistent.png", rect: Rect(x: 0, y: 0, width: 4, height: 2))]).isEmpty)
+    }
+
+    @Test func sixelEncodesBandsAndRuns() {
+        // 4 wide, 7 tall: red, with the last row in a second band.
+        let rgb: [UInt8] = (0..<28).flatMap { _ -> [UInt8] in [255, 0, 0] }
+        let out = Sixel.encode(PixelGrid(width: 4, height: 7, rgb: rgb))
+        #expect(out.hasPrefix("\u{1B}P0;1;0q\"1;1;4;7"))
+        #expect(out.contains("#180;2;100;0;0"))  // cube index 5*36
+        #expect(out.contains("#180!4~$-"))       // six rows set, four columns
+        #expect(out.contains("#180!4@$-"))       // the one row left over
+        #expect(out.hasSuffix("\u{1B}\\"))
+    }
+
+    @Test func sixelPlacementUsesCellPixels() throws {
+        let path = try tempPNG()
+        var g = InlineGraphics(format: .sixel, cellPixels: (8, 16))
+        let out = g.place([ImagePlacement(path: path, rect: Rect(x: 0, y: 0, width: 4, height: 2))])
+        #expect(out.contains("\"1;1;32;32"))
+    }
+
+    @Test func inlineArtworkUsesExactBlankCells() {
+        var c = Canvas(width: 10, height: 4)
+        c.paint(c.bounds, style: Style(fg: .rgb(9, 9, 9), bold: true))
+        let rect = Rect(x: 0, y: 0, width: 4, height: 2)
+        Artwork.draw(&c, rect, path: "/x.png", seed: "s", theme: .midnight, art: ArtworkSnapshot(mode: .iterm2, available: ["/x.png"]))
+        #expect(c.imagePlacements.count == 1)
+        #expect(c[0, 0].style == Style(bg: Theme.midnight.surface))  // nothing inherited from the selection
+    }
+
+    @Test func artworkOffShowsPlaceholders() {
+        var c = Canvas(width: 10, height: 4)
+        Artwork.draw(&c, Rect(x: 0, y: 0, width: 4, height: 2), path: "/x.png", seed: "s", theme: .midnight,
+                     art: ArtworkSnapshot(mode: .kitty, available: ["/x.png"], enabled: false))
+        #expect(c.imagePlacements.isEmpty && c.artworkRequests.isEmpty)
+    }
+
+    @Test func rendererRewritesDamagedCells() {
+        var r = Renderer(colorMode: .truecolor)
+        var c = Canvas(width: 10, height: 2)
+        c.text("hello", x: 0, y: 0)
+        _ = r.frame(c)
+        #expect(!r.frame(c).contains("hello"))
+        r.damage(Rect(x: 0, y: 0, width: 5, height: 1))
+        #expect(r.frame(c).contains("hello"))
+    }
+
+    @Test func dynamicAccentIsReadableAndSkipsGray() {
+        let bg = TermColor(hex: 0x101018)
+        let dark: [UInt8] = (0..<16).flatMap { _ -> [UInt8] in [120, 10, 20] }
+        let accent = DynamicColor.accent(from: PixelGrid(width: 4, height: 4, rgb: dark), on: bg)
+        guard case .rgb(let r, let g, let b)? = accent else { Issue.record("no accent"); return }
+        #expect(DynamicColor.contrast(DynamicColor.luminance(Double(r), Double(g), Double(b)),
+                                      DynamicColor.luminance(0x10, 0x10, 0x18)) >= 4.5)
+        let gray: [UInt8] = (0..<16).flatMap { _ -> [UInt8] in [128, 128, 128] }
+        #expect(DynamicColor.accent(from: PixelGrid(width: 4, height: 4, rgb: gray), on: bg) == nil)
+    }
+}

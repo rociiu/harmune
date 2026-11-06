@@ -4,8 +4,12 @@ import ImageIO
 
 /// How artwork is drawn in this terminal (product_spec.md §10.6).
 public enum GraphicsMode: String, Sendable, CaseIterable {
-    /// Kitty graphics protocol (Kitty, Ghostty, WezTerm).
+    /// Kitty graphics protocol (Kitty, Ghostty).
     case kitty
+    /// iTerm2 inline images (iTerm2, WezTerm).
+    case iterm2
+    /// Sixel, for terminals that support it.
+    case sixel
     /// Real pixels approximated with `▀` cells and fg/bg colors.
     case halfblock
     /// Generated gradient placeholders only.
@@ -13,8 +17,9 @@ public enum GraphicsMode: String, Sendable, CaseIterable {
 
     /// Picks a mode from the environment. `HARMUNE_GRAPHICS` overrides.
     ///
-    /// Detection is name-based for now. Querying the terminal (`ESC_Ga=q`)
-    /// is more reliable and is planned.
+    /// Detection goes by the terminal's name, because every terminal here
+    /// identifies itself. tmux gets half-blocks: images need its passthrough
+    /// setting, which is off by default and can't be detected from here.
     public static func detect(_ env: [String: String], colorMode: ColorMode) -> GraphicsMode {
         if let forced = env["HARMUNE_GRAPHICS"].flatMap(GraphicsMode.init(rawValue:)) { return forced }
         if colorMode == .none { return .none }
@@ -23,8 +28,13 @@ public enum GraphicsMode: String, Sendable, CaseIterable {
         if env["KITTY_WINDOW_ID"] != nil || term.contains("kitty") || program == "ghostty" || term.contains("ghostty") {
             return .kitty
         }
+        if program == "iTerm.app" || program == "WezTerm" { return .iterm2 }
+        if term.contains("sixel") || term.hasPrefix("foot") || term.hasPrefix("mlterm") || program == "contour" { return .sixel }
         return .halfblock
     }
+
+    /// Whether the terminal draws the file, rather than Harmune drawing cells.
+    var usesPlacements: Bool { self == .kitty || self == .iterm2 || self == .sixel }
 }
 
 /// A decoded image scaled to a pixel grid.
@@ -80,11 +90,12 @@ public struct ArtworkSnapshot: Sendable {
     public var mode: GraphicsMode
     public var decoded: [ArtworkKey: PixelGrid]
     public var available: Set<String>
-    public var reducedMotion: Bool
+    /// `:artwork off` shows placeholders without changing the mode.
+    public var enabled: Bool
 
     public init(mode: GraphicsMode = .none, decoded: [ArtworkKey: PixelGrid] = [:], available: Set<String> = [],
-                reducedMotion: Bool = false) {
-        self.mode = mode; self.decoded = decoded; self.available = available; self.reducedMotion = reducedMotion
+                enabled: Bool = true) {
+        self.mode = mode; self.decoded = decoded; self.available = available; self.enabled = enabled
     }
 }
 
@@ -93,7 +104,7 @@ public struct ArtworkSnapshot: Sendable {
 enum Artwork {
     static func draw(_ c: inout Canvas, _ rect: Rect, path: String?, seed: String, theme: Theme, art: ArtworkSnapshot) {
         guard rect.width > 0, rect.height > 0 else { return }
-        guard let path, art.mode != .none, !theme.usesReverseSelection else {
+        guard let path, art.enabled, art.mode != .none, !theme.usesReverseSelection else {
             ArtworkPlaceholder.draw(&c, rect, seed: seed, theme: theme)
             return
         }
@@ -101,7 +112,10 @@ enum Artwork {
         case .kitty where art.available.contains(path):
             c.fill(rect, style: Style(bg: theme.surface))
             c.imagePlacements.append(ImagePlacement(path: path, rect: rect))
-        case .kitty:
+        case .iterm2 where art.available.contains(path), .sixel where art.available.contains(path):
+            c.blank(rect, style: Style(bg: theme.surface))
+            c.imagePlacements.append(ImagePlacement(path: path, rect: rect))
+        case .kitty, .iterm2, .sixel:
             c.artworkRequests.insert(ArtworkKey(path: path, columns: 0, rows: 0))
             ArtworkPlaceholder.draw(&c, rect, seed: seed, theme: theme)
         case .halfblock:

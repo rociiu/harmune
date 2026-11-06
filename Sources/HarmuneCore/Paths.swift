@@ -15,6 +15,16 @@ public enum HarmunePaths {
             .appendingPathComponent("Library/Caches/Harmune", isDirectory: true)
     }
 
+    public static var logFile: URL {
+        FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs/Harmune/host.log")
+    }
+
+    /// Command history and the last view. `XDG_STATE_HOME` overrides the base.
+    public static func stateDirectory(environment env: [String: String] = ProcessInfo.processInfo.environment) -> String {
+        if let xdg = env["XDG_STATE_HOME"], !xdg.isEmpty { return xdg + "/harmune" }
+        return NSHomeDirectory() + "/.local/state/harmune"
+    }
+
     /// `HARMUNE_SOCKET` overrides the default, e.g. for tests.
     public static func socketPath(environment: [String: String] = ProcessInfo.processInfo.environment) -> String {
         if let override = environment["HARMUNE_SOCKET"], !override.isEmpty { return override }

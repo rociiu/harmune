@@ -11,6 +11,42 @@ public struct ScreenModel: Sendable, Equatable {
     public var empty: String
     public var hints: String
     public var footer: String?
+    /// Category tabs drawn beside the breadcrumb.
+    public var tabs: [String] = []
+    public var activeTab = 0
+}
+
+/// What stands between the person and their music, per spec §3.
+public struct AuthGate: Sendable, Equatable {
+    public var title: String
+    public var lines: [String]
+    public var canConnect: Bool
+}
+
+func authGate(route: Route, status: AuthStatus) -> AuthGate? {
+    if route == .settings || route == .nowPlaying { return nil }
+    switch status.state {
+    case .authorized:
+        return nil
+    case .notDetermined:
+        return AuthGate(title: "Welcome to Harmune", lines: ["Your music. Your terminal.", "", "Connect your Apple Music account to begin.", "",
+                                                             "Enter  Connect Apple Music", "?      Learn keyboard shortcuts"], canConnect: true)
+    case .denied:
+        return AuthGate(title: "Apple Music access is off", lines: ["Harmune needs permission to use Apple Music.", "",
+                                                                    "Open System Settings > Privacy & Security > Media & Apple Music,",
+                                                                    "turn on Harmune, then press Enter."], canConnect: true)
+    case .restricted:
+        return AuthGate(title: "Apple Music is restricted on this Mac", lines: ["A device management profile or Screen Time setting blocks it.", "",
+                                                                                "Change that setting, then restart Harmune."], canConnect: false)
+    case .noSubscription:
+        guard route == .home else { return nil }
+        return AuthGate(title: "Apple Music subscription needed", lines: ["This account can't play the Apple Music catalog.", "",
+                                                                          "Songs you've added or imported may still work: try gl or ga.",
+                                                                          "Subscribe in the Music app to unlock everything."], canConnect: false)
+    case .unavailable:
+        return AuthGate(title: "Apple Music isn't available", lines: [status.detail ?? "MusicKit reported no details.", "",
+                                                                      "See ~/Library/Logs/Harmune/host.log for details."], canConnect: false)
+    }
 }
 
 func formatTime(_ t: TimeInterval) -> String {
@@ -26,6 +62,29 @@ private let songColumns: [Column] = [
 private func songRow(_ t: Track, _ i: Int, container: ContainerRef.Kind? = nil, id: String? = nil, number: Int? = nil) -> Row {
     Row(kind: .song(t, container: container, containerID: id, index: i),
         cells: [String(number ?? i + 1), t.title, t.artist, t.album, formatTime(t.duration)])
+}
+
+private func onOff(_ value: Bool) -> String { value ? "on" : "off" }
+
+private func settingValue(_ key: SettingKey, _ s: AppState) -> String {
+    switch key {
+    case .theme: s.theme.name
+    case .artwork: onOff(s.prefs.showArtwork)
+    case .artworkSize: s.prefs.artworkSize.rawValue
+    case .visualizer: onOff(s.prefs.showVisualizer)
+    case .dynamicColors: onOff(s.prefs.dynamicColors)
+    case .albumView: s.prefs.albumGrid ? "grid" : "list"
+    case .borders: onOff(s.prefs.showBorders)
+    case .reducedMotion: onOff(s.prefs.reducedMotion)
+    }
+}
+
+private func sortLabel(_ s: AppState, _ route: Route) -> String {
+    switch s.sort[route] ?? .title {
+    case .title: ""
+    case .artist: " · by artist"
+    case .recentlyAdded: " · recently added first"
+    }
 }
 
 private let songHints = "Enter play   p next   a queue   / search   F filter"
@@ -58,36 +117,31 @@ public func screen(for route: Route, in s: AppState) -> ScreenModel {
 
     case .search:
         var rows: [Row] = []
+        let tab = s.searchTab
+        func section(_ title: String, _ kind: MediaKind, _ items: [Row]) {
+            guard tab.shows(kind), !items.isEmpty else { return }
+            if tab == .all { rows.append(Row(kind: .header(title), cells: [])) }
+            rows += items
+        }
         if case .search(let r) = data {
-            if !r.songs.isEmpty {
-                rows.append(Row(kind: .header("SONGS"), cells: []))
-                rows += r.songs.enumerated().map { songRow($1, $0) }
-            }
-            if !r.albums.isEmpty {
-                rows.append(Row(kind: .header("ALBUMS"), cells: []))
-                rows += r.albums.map { Row(kind: .album($0), cells: ["", $0.title, $0.artist, $0.year.map(String.init) ?? "", ""]) }
-            }
-            if !r.artists.isEmpty {
-                rows.append(Row(kind: .header("ARTISTS"), cells: []))
-                rows += r.artists.map { Row(kind: .artist($0), cells: ["", $0.name, "", "", ""]) }
-            }
-            if !r.playlists.isEmpty {
-                rows.append(Row(kind: .header("PLAYLISTS"), cells: []))
-                rows += r.playlists.map { Row(kind: .playlist($0), cells: ["", $0.name, $0.curator ?? "", "", ""]) }
-            }
+            section("SONGS", .songs, r.songs.enumerated().map { songRow($1, $0) })
+            section("ALBUMS", .albums, r.albums.map { Row(kind: .album($0), cells: ["", $0.title, $0.artist, $0.year.map(String.init) ?? "", ""]) })
+            section("ARTISTS", .artists, r.artists.map { Row(kind: .artist($0), cells: ["", $0.name, "", "", ""]) })
+            section("PLAYLISTS", .playlists, r.playlists.map { Row(kind: .playlist($0), cells: ["", $0.name, $0.curator ?? "", "", ""]) })
         }
         let scope = s.searchScope == .catalog ? "Apple Music" : "Library"
         model = ScreenModel(breadcrumb: s.searchQuery.isEmpty ? "Search" : "Search / \(s.searchQuery)",
                             columns: songColumns, rows: rows, header: nil,
-                            empty: s.searchQuery.isEmpty ? "Press / to search \(scope)." : "No results for “\(s.searchQuery)”.",
-                            hints: songHints)
+                            empty: s.searchQuery.isEmpty ? "Press / to search \(scope)." : "No \(tab == .all ? "results" : tab.title.lowercased()) for “\(s.searchQuery)”.",
+                            hints: "H/L category   " + songHints,
+                            tabs: SearchTab.allCases.map(\.title), activeTab: tab.rawValue)
 
     case .songs:
         var rows: [Row] = []
         if case .tracks(let tracks, _) = data { rows = tracks.enumerated().map { songRow($1, $0) } }
         model = ScreenModel(breadcrumb: "Library / Songs", columns: songColumns, rows: rows, header: nil,
-                            empty: "Your library has no songs yet.", hints: songHints,
-                            footer: rows.isEmpty ? nil : "\(rows.count) songs")
+                            empty: "Your library has no songs yet.", hints: "o sort   " + songHints,
+                            footer: rows.isEmpty ? nil : "\(rows.count) songs\(sortLabel(s, .songs))")
 
     case .albums:
         var rows: [Row] = []
@@ -99,7 +153,25 @@ public func screen(for route: Route, in s: AppState) -> ScreenModel {
         model = ScreenModel(breadcrumb: "Library / Albums",
                             columns: [.fixed("#", 4, right: true), .flex("ALBUM", 3), .flex("ARTIST", 2, minContent: 45), .fixed("YEAR", 6, right: true, minContent: 60)],
                             rows: rows, header: nil, empty: "No albums in your library.",
-                            hints: "Enter open   p next   a queue   F filter", footer: rows.isEmpty ? nil : "\(rows.count) albums")
+                            hints: "Enter open   p next   a queue   t grid/list   o sort   F filter",
+                            footer: rows.isEmpty ? nil : "\(rows.count) albums\(sortLabel(s, .albums))")
+
+    case .recentlyPlayed:
+        var rows: [Row] = []
+        if case .albums(let albums, _) = data {
+            rows = albums.enumerated().map { i, a in
+                Row(kind: .album(a), cells: [String(i + 1), a.title, a.artist, a.year.map(String.init) ?? ""])
+            }
+        }
+        model = ScreenModel(breadcrumb: "Library / Recently Played",
+                            columns: [.fixed("#", 4, right: true), .flex("ALBUM", 3), .flex("ARTIST", 2, minContent: 45), .fixed("YEAR", 6, right: true, minContent: 60)],
+                            rows: rows, header: nil, empty: "Nothing played recently.\n\nPress / to find something.",
+                            hints: "Enter open   p next   a queue")
+
+    case .settings:
+        let rows = SettingKey.allCases.map { Row(kind: .setting($0), cells: [$0.label, settingValue($0, s)]) }
+        model = ScreenModel(breadcrumb: "Settings", columns: [.flex("SETTING", 3), .flex("VALUE", 2)], rows: rows, header: nil, empty: "",
+                            hints: "Enter change   saved to config.toml")
 
     case .artists:
         var rows: [Row] = []
@@ -180,6 +252,11 @@ public func screen(for route: Route, in s: AppState) -> ScreenModel {
         model.rows = model.rows.filter { $0.isSelectable && $0.cells.joined(separator: " ").lowercased().contains(f) }
         model.footer = "\(model.rows.count) matching “\(filter)”"
         if model.rows.isEmpty { model.empty = "Nothing matches “\(filter)”. Esc clears the filter." }
+    }
+    if let gate = authGate(route: route, status: s.auth) {
+        model.rows = []
+        model.footer = nil
+        model.hints = gate.canConnect ? "Enter connect" : ""
     }
     if let error = s.errors[route], model.rows.isEmpty { model.empty = "⚠ \(error)\n\nPress :reload to retry." }
     return model

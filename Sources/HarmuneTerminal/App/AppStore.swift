@@ -16,10 +16,15 @@ public final class AppStore {
     public var listHeight = 20 { didSet { adjustScroll() } }
     /// Tiles per row when the album grid is showing, else 0. Set by the run loop.
     public var gridColumns = 0 { didSet { if gridColumns != oldValue { adjustScroll() } } }
+    /// Terminal height, which decides whether help needs to scroll.
+    public var terminalRows = Int.max
+    /// Saves a change to `config.toml`: section, key and a TOML literal.
+    public var onPersist: (String, String, String) -> Void = { _, _, _ in }
 
-    public func setAlbumGrid(_ on: Bool) { state.albumGrid = on }
-
-    private var gridActive: Bool { gridColumns > 0 && state.route == .albums && state.focus == .content }
+    private var gridActive: Bool {
+        gridColumns > 0 && (state.route == .albums || state.route == .home) && state.focus == .content
+    }
+    private var homeGridActive: Bool { gridActive && state.route == .home }
 
     private let reconnect: (@Sendable () async throws -> any MusicBackend)?
     private var resolver: KeyResolver
@@ -28,9 +33,19 @@ public final class AppStore {
     private var searchTask: Task<Void, Never>?
     private var eventsTask: Task<Void, Never>?
     private let clock: () -> Date
+    private let historyPath: String?
+    private var historyIndex: Int?
+    private var historyDraft = ""
+    private var searchCache: [SearchCacheKey: (results: SearchResults, stored: Date)] = [:]
+    private struct SearchCacheKey: Hashable { var text: String; var scope: SearchScope; var tab: SearchTab }
+    private static let searchCacheLimit = 50
+    private static let searchCacheLifetime: TimeInterval = 300
+    private static let historyLimit = 500
 
-    public init(backend: any MusicBackend, theme: Theme = .midnight,
+    public init(backend: any MusicBackend, theme: Theme = .midnight, themes: [Theme] = Theme.all,
+                preferences: Preferences = Preferences(),
                 keymap: Keymap = .standard, sequenceTimeout: TimeInterval = 0.6, startRoute: Route = .home,
+                historyPath: String? = nil,
                 reconnect: (@Sendable () async throws -> any MusicBackend)? = nil,
                 clock: @escaping () -> Date = { Date() }) {
         self.backend = backend
@@ -38,14 +53,26 @@ public final class AppStore {
         self.startRoute = startRoute
         self.reconnect = reconnect
         self.clock = clock
+        self.historyPath = historyPath
         state.theme = theme
+        state.themes = themes
+        state.prefs = preferences
+        state.keymap = keymap
         state.now = clock()
+        if let historyPath, let text = try? String(contentsOfFile: historyPath, encoding: .utf8) {
+            state.commandHistory = text.split(separator: "\n").map(String.init)
+        }
     }
 
     // MARK: - Lifecycle
 
     /// Updated by the run loop as artwork decodes; no redraw is triggered.
-    public func setArtwork(_ art: ArtworkSnapshot) { state.art = art }
+    public func setArtwork(_ art: ArtworkSnapshot) {
+        state.art = art
+        state.art.enabled = state.prefs.showArtwork
+    }
+
+    public func setDynamicAccent(_ color: TermColor?) { state.dynamicAccent = color }
 
     public func start() async {
         await refreshSession()
@@ -70,7 +97,7 @@ public final class AppStore {
             if case .command(let c, let n) = resolution { perform(c, count: n) }
             dirty = true
         }
-        return dirty || state.playback.isPlaying || state.route == .nowPlaying
+        return dirty || state.playback.isPlaying
     }
 
     private func refreshSession() async {
@@ -97,10 +124,32 @@ public final class AppStore {
         switch event {
         case .playback(let p) where p.revision >= state.playback.revision: state.playback = p
         case .queue(let q) where q.revision >= state.queue.revision: state.queue = q
-        case .auth(let a): state.auth = a
+        case .auth(let a): authChanged(to: a)
         default: return
         }
         changed()
+    }
+
+    /// Everything loaded before access was granted is missing or an error.
+    private func authChanged(to status: AuthStatus) {
+        let wasAuthorized = state.auth.state == .authorized
+        state.auth = status
+        guard status.state == .authorized, !wasAuthorized else { return }
+        state.data.removeAll()
+        state.errors.removeAll()
+        load(state.route)
+    }
+
+    private func connect() {
+        let backend = self.backend
+        toast("Waiting for the Apple Music prompt…")
+        spawn { [weak self] in
+            let status = await backend.requestAuthorization()
+            guard let self else { return }
+            self.authChanged(to: status)
+            self.state.capabilities = await backend.capabilities()
+            if status.state == .authorized { self.toast("Connected to Apple Music") }
+        }
     }
 
     private func connectionLost() async {
@@ -136,13 +185,24 @@ public final class AppStore {
     }
 
     public func handle(_ key: Key) {
+        if key == .focusIn || key == .focusOut { return }  // handled by the run loop
         state.now = clock()
         if key == .ctrl("c") { quit(.user); return }
 
         if let overlay = state.overlay {
             switch overlay {
             case .help:
-                state.overlay = nil
+                let overflow = HelpContent.lines(state.keymap).count + 6 - terminalRows
+                if overflow > 0, key == .char("j") || key == .down {
+                    state.helpScroll = min(overflow, state.helpScroll + 1)
+                } else if overflow > 0, key == .char("k") || key == .up {
+                    state.helpScroll = max(0, state.helpScroll - 1)
+                } else {
+                    state.overlay = nil
+                    state.helpScroll = 0
+                }
+            case .picker(let picker):
+                handlePicker(picker, key)
             case .confirm(_, let action):
                 state.overlay = nil
                 if key == .char("y") || key == .char("Y") {
@@ -174,16 +234,32 @@ public final class AppStore {
     public func perform(_ command: KeyCommand, count: Int? = nil) {
         let n = count ?? 1
         switch command {
-        case .moveDown: move(by: gridActive ? n * gridColumns : n)
-        case .moveUp: move(by: gridActive ? -n * gridColumns : -n)
+        case .moveDown:
+            if homeGridActive { moveHome(sections: n) } else { move(by: gridActive ? n * gridColumns : n) }
+        case .moveUp:
+            if homeGridActive { moveHome(sections: -n) } else { move(by: gridActive ? -n * gridColumns : -n) }
         case .filterNext: move(by: n)
         case .filterPrevious: move(by: -n)
-        case .moveLeft: move(by: -n)
-        case .moveRight: move(by: n)
+        case .moveLeft:
+            if selectedIndex <= firstSelectable(in: screen(for: state.route, in: state).rows) {
+                state.focus = .sidebar
+                syncSidebarIndex()
+            } else if homeGridActive {
+                moveHome(items: -n)
+            } else {
+                move(by: -n)
+            }
+        case .moveRight:
+            if homeGridActive { moveHome(items: n) } else { move(by: n) }
         case .moveFirst: if let count { select(line: count) } else { move(by: Int.min / 2) }
         case .moveLast: if let count { select(line: count) } else { move(by: Int.max / 2) }
         case .halfPageDown: move(by: max(1, listHeight / 2) * n)
         case .halfPageUp: move(by: -max(1, listHeight / 2) * n)
+        case .pageDown: move(by: max(1, listHeight - 1) * n)
+        case .pageUp: move(by: -max(1, listHeight - 1) * n)
+        case .center:
+            let rows = screen(for: state.route, in: state).rows.count
+            state.scroll[state.route] = max(0, min(selectedIndex - listHeight / 2, max(0, rows - listHeight)))
 
         case .focusNext, .focusPrevious:
             state.focus = state.focus == .sidebar ? .content : .sidebar
@@ -193,7 +269,9 @@ public final class AppStore {
             if state.stack.count > 1 { pop() } else { state.focus = .sidebar; syncSidebarIndex() }
         case .openSelected:
             if state.focus == .sidebar {
-                if let route = Route.sidebar.compactMap({ $0 })[safe: state.sidebarIndex] { go(route) }
+                if let route = sidebarItems[safe: state.sidebarIndex] { go(route) }
+            } else if authGate(route: state.route, status: state.auth)?.canConnect == true {
+                connect()
             } else {
                 activateSelection()
             }
@@ -231,23 +309,26 @@ public final class AppStore {
         case .playlists: go(.playlists)
         case .queue: go(.queue)
         case .nowPlaying, .toggleImmersive:
-            if state.route == .nowPlaying { pop() } else { push(.nowPlaying) }
-        case .favorites, .recentlyPlayed:
-            toast("\(command == .favorites ? "Favorites" : "Recently Played") isn't available yet", error: true)
-        case .settings:
-            toast("Settings arrive in a later release; edit ~/.config/harmune/config.toml", error: false)
+            toggleImmersive()
+        case .favorites:
+            toast("Favorites aren't supported yet", error: true)
+        case .recentlyPlayed:
+            if state.capabilities.contains(.recentlyPlayed) { go(.recentlyPlayed) }
+            else { toast("Recently Played isn't supported by this backend", error: true) }
+        case .settings: go(.settings)
         case .tabPrevious, .tabNext:
-            if state.route == .search {
-                state.searchScope = state.searchScope == .catalog ? .library : .catalog
-                scheduleSearch(immediate: true)
-                toast("Searching \(state.searchScope == .catalog ? "Apple Music" : "your library")")
-            }
+            guard state.route == .search else { break }
+            let tabs = SearchTab.allCases
+            let step = command == .tabNext ? 1 : tabs.count - 1
+            state.searchTab = tabs[(state.searchTab.rawValue + step) % tabs.count]
+            resetSelection()
+            if !state.searchQuery.isEmpty { scheduleSearch(immediate: true) }
         case .toggleLayout:
             guard state.route == .albums else { toast("Grid view is available in Albums", error: true); break }
-            state.albumGrid.toggle()
+            toggle(.albumView)
             toast(state.albumGrid ? "Grid view" : "List view")
         case .sort:
-            toast("Sorting isn't available yet", error: true)
+            openSortPicker()
 
         case .playPause: run("Play/Pause") { b in try await b.togglePlayPause() }
         case .nextTrack: run("Next") { b in try await b.next() }
@@ -286,6 +367,12 @@ public final class AppStore {
         }
     }
 
+    private func toggleImmersive() {
+        if state.route != .nowPlaying { push(.nowPlaying) }
+        else if state.stack.count > 1 { pop() }
+        else { go(.home) }
+    }
+
     private func requireQueue(_ cap: Capability) -> Bool {
         guard state.route == .queue else { return false }
         if state.capabilities.contains(cap) { return true }
@@ -316,17 +403,20 @@ public final class AppStore {
     }
 
     private func syncSidebarIndex() {
-        let items = Route.sidebar.compactMap { $0 }
-        if let i = items.firstIndex(of: state.stack.first ?? .home) { state.sidebarIndex = i }
+        if let i = sidebarItems.firstIndex(of: state.stack.first ?? .home) { state.sidebarIndex = i }
     }
+
+    private var sidebarItems: [Route] { Route.sidebar(state.capabilities).compactMap { $0 } }
 
     public func load(_ route: Route, force: Bool = false) {
         if !force, state.data[route] != nil || state.loading.contains(route) { return }
+        if authGate(route: route, status: state.auth) != nil { return }
+        let sort = state.sort[route] ?? .title
         let fetcher: (@Sendable (any MusicBackend) async throws -> RouteData)?
         switch route {
         case .home: fetcher = { .home(try await $0.home()) }
-        case .songs: fetcher = { b in let p = try await b.librarySongs(sort: .title, offset: 0, limit: 200); return .tracks(p.items, nextOffset: p.nextOffset) }
-        case .albums: fetcher = { b in let p = try await b.libraryAlbums(sort: .title, offset: 0, limit: 200); return .albums(p.items, nextOffset: p.nextOffset) }
+        case .songs: fetcher = { b in let p = try await b.librarySongs(sort: sort, offset: 0, limit: 200); return .tracks(p.items, nextOffset: p.nextOffset) }
+        case .albums: fetcher = { b in let p = try await b.libraryAlbums(sort: sort, offset: 0, limit: 200); return .albums(p.items, nextOffset: p.nextOffset) }
         case .artists: fetcher = { .artists(try await $0.libraryArtists(offset: 0, limit: 200).items) }
         case .playlists: fetcher = { .playlists(try await $0.libraryPlaylists(offset: 0, limit: 200).items) }
         case .album(let id): fetcher = { .albumDetail(try await $0.album(id: id)) }
@@ -339,7 +429,8 @@ public final class AppStore {
                 guard let self else { return }
                 self.state.queue = await self.backend.queueState()
             }
-        case .nowPlaying: fetcher = nil
+        case .recentlyPlayed: fetcher = { .albums(try await $0.home().recentlyPlayed, nextOffset: nil) }
+        case .nowPlaying, .settings: fetcher = nil
         }
         guard let fetcher else { return }
         state.loading.insert(route)
@@ -364,11 +455,12 @@ public final class AppStore {
         let count = screen(for: route, in: state).rows.count
         guard selectedIndex >= count - 20 else { return }
         let backend = self.backend
+        let sort = state.sort[route] ?? .title
         switch state.data[route] {
         case .tracks(let items, let next?):
             state.loading.insert(route)
             spawn { [weak self] in
-                if let p = try? await backend.librarySongs(sort: .title, offset: next, limit: 200) {
+                if let p = try? await backend.librarySongs(sort: sort, offset: next, limit: 200) {
                     self?.state.data[route] = .tracks(items + p.items, nextOffset: p.nextOffset)
                 }
                 self?.state.loading.remove(route)
@@ -376,18 +468,21 @@ public final class AppStore {
         case .albums(let items, let next?):
             state.loading.insert(route)
             spawn { [weak self] in
-                if let p = try? await backend.libraryAlbums(sort: .title, offset: next, limit: 200) {
+                if let p = try? await backend.libraryAlbums(sort: sort, offset: next, limit: 200) {
                     self?.state.data[route] = .albums(items + p.items, nextOffset: p.nextOffset)
                 }
                 self?.state.loading.remove(route)
             }
         case .search(let r) where r.nextOffset != nil:
-            let query = SearchQuery(text: state.searchQuery, scope: state.searchScope, kinds: [.songs], offset: r.nextOffset!)
+            let query = SearchQuery(text: state.searchQuery, scope: state.searchScope, kinds: state.searchTab.kinds, offset: r.nextOffset!)
             state.loading.insert(route)
             spawn { [weak self] in
                 if let more = try? await backend.search(query), self?.state.searchQuery == query.text {
                     var merged = r
                     merged.songs += more.songs
+                    merged.albums += more.albums
+                    merged.artists += more.artists
+                    merged.playlists += more.playlists
                     merged.nextOffset = more.nextOffset
                     self?.state.data[route] = .search(merged)
                 }
@@ -410,7 +505,7 @@ public final class AppStore {
 
     private func move(by delta: Int) {
         if state.focus == .sidebar {
-            let count = Route.sidebar.compactMap { $0 }.count
+            let count = sidebarItems.count
             state.sidebarIndex = min(max(0, state.sidebarIndex + max(-count, min(count, delta))), count - 1)
             return
         }
@@ -428,6 +523,36 @@ public final class AppStore {
         state.selection[state.route] = target
         adjustScroll()
         loadMoreIfNeeded()
+    }
+
+    /// Home's rows of tiles: `items` moves within a row, `sections` between
+    /// rows, keeping the same position in the row where it can.
+    private func moveHome(sections delta: Int = 0, items: Int = 0) {
+        let rows = screen(for: .home, in: state).rows
+        let sections = Self.sections(in: rows)
+        let current = selectedIndex
+        guard let at = sections.firstIndex(where: { $0.contains(current) }) else { return }
+        let target: Int
+        if delta != 0 {
+            let next = sections[min(max(0, at + delta), sections.count - 1)]
+            target = min(next.lowerBound + (current - sections[at].lowerBound), next.upperBound)
+        } else {
+            target = min(max(sections[at].lowerBound, current + items), sections[at].upperBound)
+        }
+        state.selection[.home] = target
+        adjustScroll()
+    }
+
+    /// Runs of selectable rows, split by header rows.
+    nonisolated static func sections(in rows: [Row]) -> [ClosedRange<Int>] {
+        var out: [ClosedRange<Int>] = []
+        var start: Int?
+        for (i, row) in rows.enumerated() {
+            if row.isSelectable { start = start ?? i }
+            else if let s = start { out.append(s...(i - 1)); start = nil }
+        }
+        if let start { out.append(start...(rows.count - 1)) }
+        return out
     }
 
     private func select(line: Int) {
@@ -448,6 +573,17 @@ public final class AppStore {
 
     private func adjustScroll() {
         let route = state.route
+        if homeGridActive {
+            // Scroll is measured in sections.
+            let visible = ShellView.homeVisibleSections(height: listHeight + 1)
+            let sections = Self.sections(in: screen(for: .home, in: state).rows)
+            let at = sections.firstIndex { $0.contains(selectedIndex) } ?? 0
+            var top = state.scroll[route] ?? 0
+            if at < top { top = at }
+            if at >= top + visible { top = at - visible + 1 }
+            state.scroll[route] = max(0, top)
+            return
+        }
         if gridActive {
             // Scroll is measured in tile rows.
             let visible = max(1, listHeight / ShellView.gridTileHeight)
@@ -481,6 +617,7 @@ public final class AppStore {
         case .playlist(let p): push(.playlist(p.id))
         case .artist(let a): push(.artist(a.id))
         case .queueEntry(let e, _): run("Play") { b in try await b.play(.queueEntry(id: e.id)) }
+        case .setting(let key): if key == .theme { openThemePicker() } else { toggle(key) }
         case .header, .message: break
         }
     }
@@ -508,9 +645,109 @@ public final class AppStore {
                 try await b.enqueue(songIDs: ids, at: position)
             }
             toast("\(verb): \(p.name)")
-        case .artist, .header, .message:
+        case .artist, .setting, .header, .message:
             break
         }
+    }
+
+    // MARK: - Pickers
+
+    private func openThemePicker() {
+        let names = state.themes.map(\.name)
+        state.overlay = .picker(Picker(title: "Theme", options: names, index: names.firstIndex(of: state.theme.name) ?? 0,
+                                       purpose: .theme(original: state.theme)))
+    }
+
+    private static let sortOptions: [(label: String, key: SortKey)] = [("Title", .title), ("Artist", .artist), ("Recently added", .recentlyAdded)]
+
+    private func openSortPicker() {
+        guard state.route == .songs || state.route == .albums else {
+            toast("Sorting is available in Songs and Albums", error: true)
+            return
+        }
+        let current = state.sort[state.route] ?? .title
+        state.overlay = .picker(Picker(title: "Sort \(state.route.title)", options: Self.sortOptions.map(\.label),
+                                       index: Self.sortOptions.firstIndex { $0.key == current } ?? 0,
+                                       purpose: .sort(state.route)))
+    }
+
+    private func handlePicker(_ picker: Picker, _ key: Key) {
+        var picker = picker
+        switch key {
+        case .char("j"), .down, .tab:
+            picker.index = min(picker.index + 1, picker.options.count - 1)
+        case .char("k"), .up, .backTab:
+            picker.index = max(picker.index - 1, 0)
+        case .enter:
+            state.overlay = nil
+            switch picker.purpose {
+            case .theme:
+                applyTheme(picker.options[picker.index], persist: true)
+            case .sort(let route):
+                applySort(Self.sortOptions[picker.index].key, route: route)
+            }
+            return
+        case .escape, .char("q"):
+            state.overlay = nil
+            if case .theme(let original) = picker.purpose { state.theme = original }
+            return
+        default:
+            return
+        }
+        state.overlay = .picker(picker)
+        if case .theme = picker.purpose, let theme = state.themes.first(where: { $0.name == picker.options[picker.index] }) {
+            state.theme = theme  // live preview
+        }
+    }
+
+    private func applyTheme(_ name: String, persist: Bool) {
+        guard let theme = state.themes.first(where: { $0.name == name }) else { return }
+        state.theme = theme
+        toast("Theme: \(theme.name)")
+        if persist { onPersist("general", "theme", "\"\(theme.name)\"") }
+    }
+
+    private func applySort(_ key: SortKey, route: Route) {
+        state.sort[route] = key
+        state.selection[route] = nil
+        state.scroll[route] = 0
+        load(route, force: true)
+    }
+
+    // MARK: - Settings
+
+    private func toggle(_ key: SettingKey) {
+        switch key {
+        case .theme:
+            break
+        case .artwork:
+            state.prefs.showArtwork.toggle()
+            state.art.enabled = state.prefs.showArtwork
+            onPersist("appearance", "show_artwork", String(state.prefs.showArtwork))
+        case .artworkSize:
+            state.prefs.artworkSize = state.prefs.artworkSize.next
+            onPersist("appearance", "artwork_size", "\"\(state.prefs.artworkSize.rawValue)\"")
+        case .visualizer:
+            state.prefs.showVisualizer.toggle()
+            onPersist("appearance", "show_visualizer", String(state.prefs.showVisualizer))
+        case .dynamicColors:
+            state.prefs.dynamicColors.toggle()
+            onPersist("appearance", "dynamic_colors", String(state.prefs.dynamicColors))
+        case .albumView:
+            state.prefs.albumGrid.toggle()
+            onPersist("appearance", "album_view", state.prefs.albumGrid ? "\"grid\"" : "\"table\"")
+        case .borders:
+            state.prefs.showBorders.toggle()
+            onPersist("appearance", "show_borders", String(state.prefs.showBorders))
+        case .reducedMotion:
+            state.prefs.reducedMotion.toggle()
+            onPersist("animation", "reduced_motion", String(state.prefs.reducedMotion))
+        }
+    }
+
+    private func set(_ key: SettingKey, _ on: Bool, current: Bool) {
+        if on != current { toggle(key) }
+        toast("\(key.label): \(on ? "on" : "off")")
     }
 
     // MARK: - Text input
@@ -521,6 +758,7 @@ public final class AppStore {
             if state.mode == .filter { state.filters[state.route] = nil; resetSelection() }
             state.mode = .normal
             state.input = ""
+            historyIndex = nil
         case .enter:
             commitInput()
         case .backspace:
@@ -534,7 +772,22 @@ public final class AppStore {
             state.searchScope = state.searchScope == .catalog ? .library : .catalog
             scheduleSearch(immediate: true)
         case .tab where state.mode == .command:
-            if let completion = CommandLine.complete(state.input) { state.input = completion }
+            if let completion = CommandLine.complete(state.input, themes: state.themes) { state.input = completion }
+        case .up where state.mode == .command:
+            guard !state.commandHistory.isEmpty else { break }
+            if historyIndex == nil { historyDraft = state.input }
+            let index = max(0, (historyIndex ?? state.commandHistory.count) - 1)
+            historyIndex = index
+            state.input = state.commandHistory[index]
+        case .down where state.mode == .command:
+            guard let index = historyIndex else { break }
+            if index + 1 < state.commandHistory.count {
+                historyIndex = index + 1
+                state.input = state.commandHistory[index + 1]
+            } else {
+                historyIndex = nil
+                state.input = historyDraft
+            }
         case .char(let c):
             state.input.append(c)
             inputChanged()
@@ -564,6 +817,7 @@ public final class AppStore {
         let mode = state.mode
         state.mode = .normal
         state.input = ""
+        historyIndex = nil
         switch mode {
         case .search:
             state.focus = .content
@@ -585,7 +839,15 @@ public final class AppStore {
             state.loading.remove(.search)
             return
         }
-        let query = SearchQuery(text: text, scope: state.searchScope)
+        let query = SearchQuery(text: text, scope: state.searchScope, kinds: state.searchTab.kinds)
+        let cacheKey = SearchCacheKey(text: text, scope: state.searchScope, tab: state.searchTab)
+        if let cached = searchCache[cacheKey], clock().timeIntervalSince(cached.stored) < Self.searchCacheLifetime {
+            state.data[.search] = .search(cached.results)
+            state.errors[.search] = nil
+            state.loading.remove(.search)
+            if state.route == .search { resetSelection() }
+            return
+        }
         let backend = self.backend
         searchTask = spawn { [weak self] in
             if !immediate {
@@ -598,6 +860,8 @@ public final class AppStore {
                 guard !Task.isCancelled, let self,
                       self.state.searchQuery.trimmingCharacters(in: .whitespaces) == text else { return }
                 self.state.data[.search] = .search(results)
+                if self.searchCache.count >= Self.searchCacheLimit { self.searchCache.removeAll() }
+                self.searchCache[cacheKey] = (results, self.clock())
                 self.state.errors[.search] = nil
                 if self.state.route == .search { self.resetSelection() }
             } catch {
@@ -613,7 +877,7 @@ public final class AppStore {
         let words = text.split(separator: " ").map(String.init)
         guard let verb = words.first else { return }
         let arg = words.dropFirst().joined(separator: " ")
-        state.commandHistory.append(text)
+        remember(text)
 
         switch verb {
         case "q", "quit": quit(.user)
@@ -641,11 +905,27 @@ public final class AppStore {
             state.filters[state.route] = arg.isEmpty ? nil : arg
             resetSelection()
         case "theme":
-            guard let theme = Theme.named(arg) else {
-                return toast("Themes: \(Theme.all.map(\.name).joined(separator: ", "))", error: arg.isEmpty ? false : true)
+            if arg.isEmpty { return openThemePicker() }
+            guard state.themes.contains(where: { $0.name == arg }) else {
+                return toast("Unknown theme. Themes: \(state.themes.map(\.name).joined(separator: ", "))", error: true)
             }
-            state.theme = theme
-            toast("Theme: \(theme.name)")
+            applyTheme(arg, persist: true)
+        case "artwork":
+            guard arg == "on" || arg == "off" else { return toast(":artwork on|off", error: true) }
+            set(.artwork, arg == "on", current: state.prefs.showArtwork)
+        case "visualizer":
+            guard arg == "on" || arg == "off" else { return toast(":visualizer on|off", error: true) }
+            set(.visualizer, arg == "on", current: state.prefs.showVisualizer)
+        case "immersive", "nowplaying": toggleImmersive()
+        case "sort":
+            let keys: [String: SortKey] = ["title": .title, "artist": .artist, "added": .recentlyAdded]
+            if arg.isEmpty { return openSortPicker() }
+            guard let key = keys[arg] else { return toast(":sort title|artist|added", error: true) }
+            guard state.route == .songs || state.route == .albums else {
+                return toast("Sorting is available in Songs and Albums", error: true)
+            }
+            applySort(key, route: state.route)
+        case "auth": connect()
         case "queue" where arg == "clear": state.route == .queue ? perform(.clearQueue) : { go(.queue); perform(.clearQueue) }()
         case "reload":
             load(state.route, force: true)
@@ -659,25 +939,15 @@ public final class AppStore {
         }
     }
 
-    enum CommandLine {
-        static let routes: [String: Route] = [
-            "home": .home, "search": .search, "songs": .songs, "library": .songs, "albums": .albums,
-            "artists": .artists, "playlists": .playlists, "queue": .queue, "nowplaying": .nowPlaying,
-        ]
-        static let verbs = ["quit", "play", "pause", "toggle", "next", "previous", "seek", "shuffle", "repeat",
-                            "search", "filter", "theme", "queue", "reload", "help", "service", "home", "songs",
-                            "library", "albums", "artists", "playlists", "nowplaying"]
-
-        static func complete(_ input: String) -> String? {
-            guard !input.contains(" ") else { return nil }
-            let matches = verbs.filter { $0.hasPrefix(input) }
-            guard let first = matches.first else { return nil }
-            if matches.count == 1 { return first + " " }
-            // Longest common prefix.
-            var prefix = first
-            for m in matches.dropFirst() { while !m.hasPrefix(prefix) { prefix.removeLast() } }
-            return prefix
+    private func remember(_ command: String) {
+        if state.commandHistory.last != command { state.commandHistory.append(command) }
+        if state.commandHistory.count > Self.historyLimit {
+            state.commandHistory.removeFirst(state.commandHistory.count - Self.historyLimit)
         }
+        guard let historyPath else { return }
+        let directory = (historyPath as NSString).deletingLastPathComponent
+        try? FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        try? (state.commandHistory.joined(separator: "\n") + "\n").write(toFile: historyPath, atomically: true, encoding: .utf8)
     }
 
     // MARK: - Effects

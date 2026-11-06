@@ -19,6 +19,7 @@ PLAYBACK
   play [<song-id>]                Resume, or play a song
   play --album <id> [--track n]   Play an album from track n (1-based)
   play --playlist <id> [--track n]
+  play --search <query>           Play the first matching song
   pause | toggle | next | previous
   seek <seconds|+n|-n>
   shuffle on|off
@@ -27,6 +28,7 @@ PLAYBACK
 QUEUE
   queue [--json]                  Show the queue
   add <song-id>... [--next]       Add songs to the end (or play next)
+  queue add <song-id>... [--next] The same
 
 BROWSE
   search <query> [--library] [--json]
@@ -40,10 +42,13 @@ SERVICE
 CONFIG
   config path                     Print the config file location
   config check                    Validate the config file
+  keys [--markdown]               Print the effective key bindings
+  completions zsh|bash|fish       Print a shell completion script
+  cache path|size|clear [--logs]  Manage cached artwork (--logs also clears logs)
 
 OPTIONS
   --socket <path>                 Host socket (env HARMUNE_SOCKET)
-  --theme <name>                  harmune-midnight (default) or mono
+  --theme <name>                  A theme name, e.g. nord (:theme lists them all)
   --config <path>                 Config file (default: \(HarmuneConfig.defaultPath()))
   --version, --help
 """
@@ -59,7 +64,7 @@ struct Args {
     var positional: [String] = []
     var flags: Set<String> = []
     var options: [String: String] = [:]
-    static let valued: Set<String> = ["--socket", "--album", "--playlist", "--track", "--theme", "--config"]
+    static let valued: Set<String> = ["--socket", "--album", "--playlist", "--track", "--theme", "--config", "--search"]
 
     init(_ raw: ArraySlice<String>) {
         var it = raw.makeIterator()
@@ -103,7 +108,7 @@ func run() async throws {
             print(configPath)
         case "check":
             let (config, warnings) = HarmuneConfig.load(path: configPath)
-            let resolved = resolveTUIOptions(config)
+            let resolved = resolveTUIOptions(config, configPath: configPath)
             let all = warnings + resolved.warnings
             if !FileManager.default.fileExists(atPath: configPath) {
                 print("No config file at \(configPath); using defaults.")
@@ -116,6 +121,24 @@ func run() async throws {
         default:
             throw CLIError("config expects path|check", code: 64)
         }
+        return
+    }
+
+    if command == "keys" {
+        let (config, _) = HarmuneConfig.load(path: configPath)
+        let keymap = resolveTUIOptions(config, configPath: configPath).keymap
+        print(args.flags.contains("--markdown") ? keymap.helpMarkdown() : keymap.helpText())
+        return
+    }
+    if command == "completions" {
+        guard let script = Completions.script(for: try args.next("zsh|bash|fish")) else {
+            throw CLIError("completions expects zsh|bash|fish", code: 64)
+        }
+        print(script)
+        return
+    }
+    if command == "cache" {
+        try cacheCommand(try args.next("path|size|clear"), args: args)
         return
     }
 
@@ -151,6 +174,10 @@ func run() async throws {
             try await backend.play(.container(.album, id: album, startIndex: track))
         } else if let playlist = args.options["--playlist"] {
             try await backend.play(.container(.playlist, id: playlist, startIndex: track))
+        } else if let text = args.options["--search"] {
+            let results = try await backend.search(SearchQuery(text: text, kinds: [.songs], limit: 1))
+            guard let first = results.songs.first else { throw CLIError("No songs match \"\(text)\"") }
+            try await backend.play(.song(id: first.id))
         } else if let song = args.positional.first {
             try await backend.play(.song(id: song))
         } else {
@@ -186,6 +213,12 @@ func run() async throws {
             throw CLIError("repeat expects off|one|all", code: 64)
         }
         try await backend.setRepeat(mode)
+
+    case "queue" where args.positional.first == "add":
+        args.positional.removeFirst()
+        guard !args.positional.isEmpty else { throw CLIError("queue add expects one or more song ids", code: 64) }
+        try await backend.enqueue(songIDs: args.positional, at: args.flags.contains("--next") ? .next : .last)
+        print("Added \(args.positional.count) song(s)")
 
     case "queue":
         let q = await backend.queueState()
@@ -242,28 +275,64 @@ func run() async throws {
 /// TUI settings derived from the config file.
 struct TUIOptions {
     var theme = Theme.midnight
+    var themes = Theme.all
     var graphics: GraphicsMode?
-    var reducedMotion = false
-    var albumGrid = true
+    var preferences = Preferences()
+    var restoreLastView = false
     var keymap = Keymap.standard
     var sequenceTimeout = 0.6
     var startRoute = Route.home
     var warnings: [String] = []
 }
 
-func resolveTUIOptions(_ config: HarmuneConfig) -> TUIOptions {
+func resolveTUIOptions(_ config: HarmuneConfig, configPath: String) -> TUIOptions {
     var o = TUIOptions()
-    if let theme = Theme.named(config.theme) { o.theme = theme }
-    else { o.warnings.append("unknown theme \"\(config.theme)\"; available: \(Theme.all.map(\.name).joined(separator: ", "))") }
-    o.graphics = !config.showArtwork ? GraphicsMode.none : GraphicsMode(rawValue: config.graphics)
-    o.reducedMotion = config.reducedMotion || !config.animations
-    o.albumGrid = config.albumView == "grid"
+    let themeDirectory = (configPath as NSString).deletingLastPathComponent + "/themes"
+    let (themes, themeWarnings) = Theme.available(customDirectory: themeDirectory)
+    o.themes = themes
+    o.warnings += themeWarnings
+    if let theme = themes.first(where: { $0.name == config.theme }) { o.theme = theme }
+    else { o.warnings.append("unknown theme \"\(config.theme)\"; available: \(themes.map(\.name).joined(separator: ", "))") }
+    o.graphics = GraphicsMode(rawValue: config.graphics)
+    o.preferences.showArtwork = config.showArtwork
+    o.preferences.showVisualizer = config.showVisualizer
+    o.preferences.showBorders = config.showBorders
+    o.preferences.dynamicColors = config.dynamicColors
+    o.preferences.showProgress = config.showProgress
+    o.preferences.showDuration = config.showDuration
+    o.preferences.maxFPS = config.maxFPS
+    o.preferences.artworkSize = ArtworkSize(rawValue: config.artworkSize) ?? .medium
+    o.preferences.reducedMotion = config.reducedMotion || !config.animations
+    o.preferences.albumGrid = config.albumView == "grid"
+    o.restoreLastView = config.restoreLastView
     o.sequenceTimeout = Double(config.sequenceTimeoutMs) / 1000
     o.warnings += o.keymap.apply(overrides: config.keybindings)
-    let routes: [String: Route] = ["home": .home, "search": .search, "songs": .songs, "albums": .albums,
-                                   "artists": .artists, "playlists": .playlists, "queue": .queue]
-    o.startRoute = routes[config.startPage] ?? .home
+    o.startRoute = Route.page(config.startPage) ?? .home
     return o
+}
+
+func cacheCommand(_ sub: String, args: Args) throws {
+    let directory = HarmunePaths.cacheDirectory
+    switch sub {
+    case "path":
+        print(directory.path)
+    case "size":
+        let files = FileManager.default.enumerator(at: directory, includingPropertiesForKeys: [.fileSizeKey])
+        var bytes = 0
+        while let url = files?.nextObject() as? URL {
+            bytes += (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+        }
+        print(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))
+    case "clear":
+        try? FileManager.default.removeItem(at: directory)
+        print("Cleared cached artwork")
+        if args.flags.contains("--logs") {
+            try? FileManager.default.removeItem(at: HarmunePaths.logFile)
+            print("Cleared logs")
+        }
+    default:
+        throw CLIError("cache expects path|size|clear", code: 64)
+    }
 }
 
 @MainActor
@@ -272,20 +341,36 @@ func runTUI(demo: Bool, socket: String, themeName: String?, configPath: String) 
         throw CLIError("The TUI needs an interactive terminal. Use subcommands (harmune --help) in scripts.", code: 64)
     }
     let (config, configWarnings) = HarmuneConfig.load(path: configPath)
-    var options = resolveTUIOptions(config)
+    var options = resolveTUIOptions(config, configPath: configPath)
     options.warnings = configWarnings + options.warnings
     if let themeName {
-        guard let t = Theme.named(themeName) else {
-            throw CLIError("Unknown theme '\(themeName)'. Available: \(Theme.all.map(\.name).joined(separator: ", "))", code: 64)
+        guard let t = options.themes.first(where: { $0.name == themeName }) else {
+            throw CLIError("Unknown theme '\(themeName)'. Available: \(options.themes.map(\.name).joined(separator: ", "))", code: 64)
         }
         options.theme = t
+    }
+
+    let lastViewPath = HarmunePaths.stateDirectory() + "/last-view"
+    if options.restoreLastView, let name = try? String(contentsOfFile: lastViewPath, encoding: .utf8),
+       let route = Route.page(name.trimmingCharacters(in: .whitespacesAndNewlines)) {
+        options.startRoute = route
+    }
+
+    func saveLastView(_ app: TUIApp) {
+        guard let name = app.currentRoot.pageName else { return }
+        try? FileManager.default.createDirectory(atPath: HarmunePaths.stateDirectory(), withIntermediateDirectories: true)
+        try? name.write(toFile: lastViewPath, atomically: true, encoding: .utf8)
     }
 
     func makeApp(_ backend: any MusicBackend,
                  reconnect: (@Sendable () async throws -> any MusicBackend)? = nil) -> TUIApp {
         let app = TUIApp(backend: backend, theme: options.theme, reconnect: reconnect, graphics: options.graphics,
-                         reducedMotion: options.reducedMotion, albumGrid: options.albumGrid, keymap: options.keymap,
-                         sequenceTimeout: options.sequenceTimeout, startRoute: options.startRoute)
+                         themes: options.themes, preferences: options.preferences, keymap: options.keymap,
+                         sequenceTimeout: options.sequenceTimeout, startRoute: options.startRoute,
+                         historyPath: HarmunePaths.stateDirectory() + "/history",
+                         persist: { section, key, literal in
+                             try? HarmuneConfig.save(section: section, key: key, literal: literal, path: configPath)
+                         })
         if let first = options.warnings.first {
             let more = options.warnings.count > 1 ? " (+\(options.warnings.count - 1) more; run harmune config check)" : ""
             app.notify("Config: \(first)\(more)", error: true)
@@ -296,6 +381,7 @@ func runTUI(demo: Bool, socket: String, themeName: String?, configPath: String) 
     if demo {
         let app = makeApp(DemoBackend())
         _ = try await app.run()
+        saveLastView(app)
         print("Harmune demo closed.")
         return
     }
@@ -304,7 +390,12 @@ func runTUI(demo: Bool, socket: String, themeName: String?, configPath: String) 
     let app = makeApp(remote, reconnect: {
         try await HostLauncher.connect(socketPath: socket, autoStart: true, client: .tui)
     })
+    if let status = try? await remote.serviceStatus(), status.hostVersion != HarmuneVersion.current {
+        app.notify("Host is version \(status.hostVersion), this is \(HarmuneVersion.current). Restart it: harmune service stop", error: true)
+    }
     let reason = try await app.run()
+
+    saveLastView(app)
 
     // Reconnects may have replaced the backend; ask the host fresh.
     let current = try? await HostLauncher.connect(socketPath: socket, autoStart: false)
@@ -337,6 +428,9 @@ func service(_ sub: String, args: Args, socket: String) async throws {
           playing   \(s.isPlaying ? "yes" : "no")
           socket    \(socket)
         """)
+        if s.hostVersion != HarmuneVersion.current {
+            print("\nThe host is version \(s.hostVersion), but this CLI is \(HarmuneVersion.current). Restart it: harmune service stop")
+        }
     case "start":
         _ = try await HostLauncher.connect(socketPath: socket, autoStart: true)
         print("Harmune host is running")

@@ -62,6 +62,16 @@ public final class TerminalIO: @unchecked Sendable {
         return (80, 24)
     }
 
+    /// Size of one cell in pixels. Terminals that don't report it get a
+    /// typical size, which only makes Sixel covers a little soft.
+    public func cellPixels() -> (width: Int, height: Int) {
+        var ws = winsize()
+        if ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0, ws.ws_col > 0, ws.ws_row > 0, ws.ws_xpixel > 0, ws.ws_ypixel > 0 {
+            return (Int(ws.ws_xpixel) / Int(ws.ws_col), Int(ws.ws_ypixel) / Int(ws.ws_row))
+        }
+        return (10, 20)
+    }
+
     public static func write(_ s: String) {
         var data = Array(s.utf8)
         var offset = 0

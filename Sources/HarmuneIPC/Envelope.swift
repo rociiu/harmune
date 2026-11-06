@@ -1,7 +1,7 @@
 import Foundation
 import HarmuneCore
 
-/// One NDJSON frame. See Docs/PROTOCOL.md.
+/// One NDJSON frame. See docs/PROTOCOL.md.
 public struct Envelope: Codable, Sendable, Equatable {
     public enum Kind: String, Codable, Sendable { case command, response, event }
 
@@ -56,7 +56,7 @@ public struct Envelope: Codable, Sendable, Equatable {
     }
 }
 
-/// Action and event names. Keep in sync with Docs/PROTOCOL.md.
+/// Action and event names. Keep in sync with docs/PROTOCOL.md.
 public enum Action {
     public static let hello = "session.hello"
     public static let subscribe = "session.subscribe"

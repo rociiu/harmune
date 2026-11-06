@@ -7,6 +7,7 @@
 #   --profile <file>   Embed a provisioning profile and add the entitlements it
 #                      grants. See docs/PHASE0_SETUP.md for when this is needed.
 #   --debug            Build the debug configuration.
+#   --universal        Build for both Apple silicon and Intel.
 #
 # Environment:
 #   HARMUNE_BUNDLE_ID      Bundle ID (default: com.orinbyte.harmune)
@@ -20,10 +21,12 @@ cd "$(dirname "$0")/.."
 BUNDLE_ID="${HARMUNE_BUNDLE_ID:-com.orinbyte.harmune}"
 CONFIG=release
 PROFILE=""
+ARCHS=()
 while [ $# -gt 0 ]; do
     case "$1" in
         --profile) PROFILE="${2:?--profile needs a file}"; shift 2 ;;
         --debug) CONFIG=debug; shift ;;
+        --universal) ARCHS=(--arch arm64 --arch x86_64); shift ;;
         *) echo "Unknown option $1" >&2; exit 64 ;;
     esac
 done
@@ -40,9 +43,9 @@ if [ -z "$identity" ]; then
 fi
 
 echo "==> Building ($CONFIG)"
-swift build -c "$CONFIG" --product HarmuneHostApp
-swift build -c "$CONFIG" --product harmune
-BIN="$(swift build -c "$CONFIG" --show-bin-path)"
+swift build -c "$CONFIG" ${ARCHS[@]+"${ARCHS[@]}"} --product HarmuneHostApp
+swift build -c "$CONFIG" ${ARCHS[@]+"${ARCHS[@]}"} --product harmune
+BIN="$(swift build -c "$CONFIG" ${ARCHS[@]+"${ARCHS[@]}"} --show-bin-path)"
 
 APP=build/Harmune.app
 echo "==> Assembling $APP"

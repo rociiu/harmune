@@ -61,7 +61,7 @@ enum Visualizer {
     static func draw(_ c: inout Canvas, _ r: Rect, _ s: AppState, compact: Bool = false) -> Int {
         guard r.width > 0, r.height > 0, let track = s.playback.track else { return 0 }
         // Reduced motion: a still frame.
-        let t = s.art.reducedMotion ? 0 : s.playback.position(at: s.now)
+        let t = s.prefs.reducedMotion ? 0 : s.playback.position(at: s.now)
         let seed = Double(stableHash(track.id) % 1000) / 100
         let bars = compact ? r.width : min(r.width, 48)
         let x0 = r.x + (r.width - bars) / 2
@@ -71,8 +71,14 @@ enum Visualizer {
                 + 0.1 * sin(t * 7 + fi)
             let level = Int((min(max(v, 0), 0.999)) * Double(levels.count))
             let frac = Double(i) / Double(max(1, bars - 1))
-            let col = ArtworkPlaceholder.mix((198, 165, 255), (148, 191, 255), frac)
-            let style = s.theme.usesReverseSelection ? Style() : Style(fg: .rgb(col.0, col.1, col.2))
+            let theme = s.decorativeTheme
+            let style: Style
+            if case .rgb(let r1, let g1, let b1) = theme.accent, case .rgb(let r2, let g2, let b2) = theme.accentBlue {
+                let col = ArtworkPlaceholder.mix((r1, g1, b1), (r2, g2, b2), frac)
+                style = Style(fg: .rgb(col.0, col.1, col.2))
+            } else {
+                style = Style()
+            }
             c.text(String(levels[level]), x: x0 + i, y: r.y, style: style)
         }
         return 1
@@ -80,14 +86,25 @@ enum Visualizer {
 }
 
 enum NowPlayingView {
+    /// Full-screen Now Playing: header, large cover, progress and visualizer.
+    static func drawImmersive(_ c: inout Canvas, _ r: Rect, _ s: AppState) {
+        let t = s.decorativeTheme
+        var x = r.x + 2
+        x += c.text("◈ ", x: x, y: r.y, style: Style(fg: t.accentPink))
+        c.text("harmune", x: x, y: r.y, style: t.accentStyle)
+        let label = "♪ NOW PLAYING"
+        c.text(label, x: r.maxX - textWidth(label) - 2, y: r.y, style: t.accentStyle)
+        draw(&c, Rect(x: r.x, y: r.y + 1, width: r.width, height: r.height - 1), s)
+    }
+
     static func draw(_ c: inout Canvas, _ r: Rect, _ s: AppState) {
-        let t = s.theme
+        let t = s.decorativeTheme
         guard let track = s.playback.track else {
             c.text("Nothing playing", x: r.x + max(0, (r.width - 15) / 2), y: r.y + r.height / 2, style: t.dimmed)
             return
         }
-        // Artwork sized to ~55% of the height, square in cells (2:1).
-        let artH = max(3, min((r.height - 10), Int(Double(r.height) * 0.55)))
+        // Square on screen, because cells are about twice as tall as wide.
+        let artH = max(3, min(r.height - 10, Int(Double(r.height) * s.prefs.artworkSize.fraction)))
         let artW = min(r.width - 4, artH * 2)
         let art = Rect(x: r.x + (r.width - artW) / 2, y: r.y + 1, width: artW, height: artH)
         Artwork.draw(&c, art, path: track.artwork?.path, seed: track.album, theme: t, art: s.art)
@@ -106,7 +123,7 @@ enum NowPlayingView {
         let barW = min(r.width - 8, 56)
         let bx = r.x + (r.width - barW) / 2
         let position = s.playback.position(at: s.now)
-        if y < r.maxY {
+        if y < r.maxY, s.prefs.showProgress {
             ShellView.drawProgress(&c, x: bx, y: y, width: barW, fraction: position / max(1, track.duration), theme: t)
             y += 1
             c.text(formatTime(position), x: bx, y: y, style: t.secondary)
@@ -114,7 +131,7 @@ enum NowPlayingView {
             c.text(total, x: bx + barW - textWidth(total), y: y, style: t.secondary)
             y += 2
         }
-        if y < r.maxY - 2 {
+        if y < r.maxY - 2, s.prefs.showVisualizer {
             Visualizer.draw(&c, Rect(x: bx, y: y, width: barW, height: 1), s)
             y += 2
         }
@@ -130,29 +147,13 @@ enum NowPlayingView {
 enum HelpContent {
     struct Line { var keys: String; var action: String }
 
-    static let lines: [Line] = [
-        Line(keys: "", action: "NAVIGATION"),
-        Line(keys: "j / k", action: "move down / up (5j moves five)"),
-        Line(keys: "gg / G", action: "first / last item"),
-        Line(keys: "Ctrl+d / Ctrl+u", action: "half page down / up"),
-        Line(keys: "l / Enter", action: "open or play the selection"),
-        Line(keys: "h / Esc", action: "back"),
-        Line(keys: "Tab", action: "switch between sidebar and content"),
-        Line(keys: "gh gs gl ga gA", action: "home · search · songs · albums · artists"),
-        Line(keys: "gp gq gn", action: "playlists · queue · now playing"),
-        Line(keys: "", action: "PLAYBACK"),
-        Line(keys: "Space", action: "play / pause"),
-        Line(keys: "> / <", action: "next / previous track"),
-        Line(keys: "] / [", action: "seek ±5 seconds"),
-        Line(keys: "s / r", action: "shuffle / cycle repeat"),
-        Line(keys: "v", action: "now playing"),
-        Line(keys: "", action: "QUEUE"),
-        Line(keys: "a / p", action: "add to queue / play next"),
-        Line(keys: "dd  J/K  D", action: "remove · move · clear (in Queue)"),
-        Line(keys: "", action: "SEARCH & COMMANDS"),
-        Line(keys: "/", action: "search (Ctrl+S toggles Apple Music / Library)"),
-        Line(keys: "F", action: "filter the current list"),
-        Line(keys: ":", action: "command (:theme mono, :seek 90, :q)"),
-        Line(keys: "q", action: "back; quit from the root (music keeps playing)"),
-    ]
+    static func lines(_ keymap: Keymap) -> [Line] {
+        Keymap.helpSections.flatMap { section -> [Line] in
+            let rows = section.entries.compactMap { entry -> Line? in
+                let keys = keymap.keysLabel(for: entry)
+                return keys.isEmpty ? nil : Line(keys: keys, action: entry.action)
+            }
+            return [Line(keys: "", action: section.title)] + rows
+        }
+    }
 }

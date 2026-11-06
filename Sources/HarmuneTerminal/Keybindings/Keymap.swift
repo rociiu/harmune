@@ -7,6 +7,7 @@ public enum KeyCommand: String, Sendable, CaseIterable, Hashable {
     case moveDown = "move_down", moveUp = "move_up", moveLeft = "move_left", moveRight = "move_right"
     case moveFirst = "move_first", moveLast = "move_last"
     case halfPageDown = "half_page_down", halfPageUp = "half_page_up"
+    case pageDown = "page_down", pageUp = "page_up", center = "center"
     case goBack = "go_back", openSelected = "open_selected"
     case focusNext = "focus_next", focusPrevious = "focus_previous"
     case close = "close"
@@ -32,7 +33,7 @@ public enum KeyCommand: String, Sendable, CaseIterable, Hashable {
     /// Whether a count prefix (`5j`) repeats or scales this command.
     public var acceptsCount: Bool {
         switch self {
-        case .moveDown, .moveUp, .moveLeft, .moveRight, .halfPageDown, .halfPageUp,
+        case .moveDown, .moveUp, .moveLeft, .moveRight, .halfPageDown, .halfPageUp, .pageDown, .pageUp,
              .seekForward, .seekBackward, .moveEntryDown, .moveEntryUp, .moveLast, .moveFirst:
             true
         default: false
@@ -80,7 +81,7 @@ public struct Keymap: Sendable {
             ("j", .moveDown), ("<down>", .moveDown), ("k", .moveUp), ("<up>", .moveUp),
             ("h", .goBack), ("<left>", .goBack), ("l", .openSelected), ("<right>", .openSelected),
             ("<cr>", .openSelected), ("gg", .moveFirst), ("G", .moveLast),
-            ("<c-d>", .halfPageDown), ("<c-u>", .halfPageUp),
+            ("<c-d>", .halfPageDown), ("<c-u>", .halfPageUp), ("<c-f>", .pageDown), ("<c-b>", .pageUp), ("zz", .center),
             ("<tab>", .focusNext), ("<s-tab>", .focusPrevious), ("<esc>", .close), ("q", .quit), ("<c-c>", .quit),
             ("/", .search), ("F", .filter), ("n", .filterNext), ("N", .filterPrevious),
             (":", .commandMode), ("?", .help), ("H", .tabPrevious), ("L", .tabNext),

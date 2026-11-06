@@ -12,6 +12,7 @@ actor ArtworkStore {
     static let maxConcurrent = 4
     static let pixels = 300
     static let missLifetime: TimeInterval = 7 * 24 * 3600
+    static let maxCacheBytes = 500 * 1024 * 1024
 
     private let directory: URL
     private var pending: [(url: URL, destination: URL)] = []
@@ -23,6 +24,28 @@ actor ArtworkStore {
     init(directory: URL = HarmunePaths.cacheDirectory.appendingPathComponent("artwork", isDirectory: true)) {
         self.directory = directory
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let cache = directory
+        Task.detached(priority: .background) { Self.prune(directory: cache, limit: Self.maxCacheBytes) }
+    }
+
+    /// Deletes the oldest files until the cache fits in `limit`.
+    @discardableResult
+    static func prune(directory: URL, limit: Int) -> Int {
+        let keys: Set<URLResourceKey> = [.fileSizeKey, .contentModificationDateKey]
+        let urls = (try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: Array(keys))) ?? []
+        var files = urls.compactMap { url -> (url: URL, size: Int, date: Date)? in
+            guard let values = try? url.resourceValues(forKeys: keys), let size = values.fileSize else { return nil }
+            return (url, size, values.contentModificationDate ?? .distantPast)
+        }
+        var total = files.reduce(0) { $0 + $1.size }
+        files.sort { $0.date < $1.date }
+        var removed = 0
+        for file in files where total > limit {
+            guard (try? FileManager.default.removeItem(at: file.url)) != nil else { continue }
+            total -= file.size
+            removed += 1
+        }
+        return removed
     }
 
     nonisolated func destination(forKey key: String) -> URL {
@@ -91,11 +114,12 @@ actor ArtworkStore {
                 // so in advance, so remember it instead of waiting again.
                 FileManager.default.createFile(atPath: Self.missMarker(for: job.destination).path, contents: nil)
             }
-            await self?.renderFinished()
+            await self?.renderFinished(job.destination)
         }
     }
 
-    private func renderFinished() {
+    private func renderFinished(_ destination: URL) {
+        known.remove(destination.path)  // so a cleared cache can fill again
         rendering = false
         pumpRenders()
     }
@@ -106,12 +130,13 @@ actor ArtworkStore {
             running += 1
             Task.detached(priority: .utility) { [weak self] in
                 await Self.download(job.url, to: job.destination)
-                await self?.finished()
+                await self?.finished(job.destination)
             }
         }
     }
 
-    private func finished() {
+    private func finished(_ destination: URL) {
+        known.remove(destination.path)  // so a cleared cache can fill again
         running -= 1
         pump()
     }

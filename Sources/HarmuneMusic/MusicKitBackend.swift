@@ -338,7 +338,8 @@ public final class MusicKitBackend: MusicBackend {
         return SearchResults(songs: r.songs.map { map.track($0, .catalog) }, albums: r.albums.map { map.album($0, .catalog) },
                              artists: r.artists.map { map.artist($0, .catalog) },
                              playlists: r.playlists.map { map.playlist($0, .catalog) },
-                             nextOffset: r.songs.hasNextBatch ? q.offset + min(q.limit, 25) : nil)
+                             nextOffset: r.songs.hasNextBatch || r.albums.hasNextBatch || r.artists.hasNextBatch || r.playlists.hasNextBatch
+                                ? q.offset + min(q.limit, 25) : nil)
     }
 
     private func librarySearch(_ q: SearchQuery) async throws -> SearchResults {
@@ -477,7 +478,7 @@ public final class MusicKitBackend: MusicBackend {
             do {
                 var request = MusicPersonalRecommendationsRequest()
                 request.limit = 6
-                madeForYou = try await request.response().recommendations.flatMap { $0.playlists }.map { map.playlist($0, .catalog) }
+                madeForYou = try await request.response().recommendations.flatMap { $0.playlists }.map { map.playlist($0, .catalog, fetchArtwork: true) }
             } catch {
                 HostLog.write("home: recommendations FAILED: \(String(reflecting: error))")
             }

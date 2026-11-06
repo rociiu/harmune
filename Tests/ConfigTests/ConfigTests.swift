@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import HarmuneConfig
 @testable import HarmuneTerminal
@@ -66,7 +67,7 @@ import Testing
         [appearance]
         show_artwork = "yes"
         album_view = "table"
-        graphics = "sixel"
+        graphics = "ascii-art"
         [animation]
         reduced_motion = true
         bogus = 1
@@ -121,5 +122,62 @@ import Testing
         #expect(keymap.conflicts().isEmpty)  // defaults are conflict-free
         let warnings = keymap.apply(overrides: ["normal": ["sx": "home"]])
         #expect(warnings.count == 1 && warnings[0].contains("\"s\""), "\(warnings)")
+    }
+
+    @Test func specSettingsNowApply() {
+        let (config, warnings) = HarmuneConfig.parse("""
+        [general]
+        restore_last_view = true
+        [appearance]
+        artwork_size = "large"
+        show_visualizer = false
+        show_borders = false
+        dynamic_colors = false
+        graphics = "sixel"
+        [animation]
+        max_fps = 30
+        [player]
+        show_progress = false
+        show_duration = false
+        """)
+        #expect(warnings.isEmpty)
+        #expect(config.restoreLastView && config.artworkSize == "large" && config.graphics == "sixel")
+        #expect(!config.showVisualizer && !config.showBorders && !config.dynamicColors)
+        #expect(config.maxFPS == 30 && !config.showProgress && !config.showDuration)
+    }
+
+    @Test func savingKeepsTheRestOfTheFile() {
+        let text = """
+        # my settings
+        [general]
+        theme = "mono"  # dark
+        start_page = "albums"
+
+        [keys]
+        sequence_timeout_ms = 500
+        """
+        let replaced = HarmuneConfig.setting(section: "general", key: "theme", literal: "\"nord\"", in: text)
+        #expect(replaced.contains("theme = \"nord\"\nstart_page = \"albums\""))
+        #expect(replaced.contains("# my settings") && replaced.contains("sequence_timeout_ms = 500"))
+        #expect(!replaced.contains("mono"))
+
+        let added = HarmuneConfig.setting(section: "general", key: "restore_last_view", literal: "true", in: text)
+        #expect(added.contains("[general]\nrestore_last_view = true\ntheme"))
+
+        let newSection = HarmuneConfig.setting(section: "appearance", key: "show_artwork", literal: "false", in: text)
+        #expect(newSection.hasSuffix("[appearance]\nshow_artwork = false\n"))
+        #expect(HarmuneConfig.parse(newSection).0.showArtwork == false)
+
+        #expect(HarmuneConfig.setting(section: "a", key: "b", literal: "true", in: "") == "[a]\nb = true\n")
+    }
+
+    @Test func savingWritesTheFile() throws {
+        let dir = NSTemporaryDirectory() + "hm-config-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        let path = dir + "/nested/config.toml"
+        try HarmuneConfig.save(section: "general", key: "theme", literal: "\"nord\"", path: path)
+        try HarmuneConfig.save(section: "appearance", key: "show_borders", literal: "false", path: path)
+        let (config, warnings) = HarmuneConfig.load(path: path)
+        #expect(warnings.isEmpty && config.theme == "nord" && !config.showBorders)
     }
 }

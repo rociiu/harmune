@@ -242,3 +242,307 @@ func type(_ store: AppStore, _ text: String) async {
         #expect(screen(for: .album("missing"), in: store.state).empty.contains("not found"))
     }
 }
+
+@MainActor
+@Suite struct FeatureTests {
+    @Test func searchTabsSwitchCategoriesNotScope() async {
+        let store = await makeStore()
+        await press(store, "/")
+        await type(store, "neon")
+        await press(store, "<cr>")
+        let scope = store.state.searchScope
+        await press(store, "L")
+        #expect(store.state.searchTab == .songs)
+        #expect(store.state.searchScope == scope)
+        let songs = screen(for: .search, in: store.state).rows
+        #expect(!songs.isEmpty && songs.allSatisfy { if case .song = $0.kind { true } else { false } })
+        await press(store, "H")
+        #expect(store.state.searchTab == .all)
+        await press(store, "H")
+        #expect(store.state.searchTab == .playlists)
+        #expect(screen(for: .search, in: store.state).tabs.count == 5)
+    }
+
+    @Test func sortPickerReloadsWithTheChosenKey() async {
+        let store = await makeStore()
+        await press(store, "gl")
+        await press(store, "o")
+        guard case .picker(let picker)? = store.state.overlay else { Issue.record("no picker"); return }
+        #expect(picker.options == ["Title", "Artist", "Recently added"])
+        await press(store, "j<cr>")
+        #expect(store.state.overlay == nil)
+        #expect(store.state.sort[.songs] == .artist)
+        guard case .tracks(let tracks, _)? = store.state.data[.songs] else { Issue.record("no songs"); return }
+        #expect(tracks[0].artist <= tracks[1].artist)
+        await press(store, "gq")
+        await press(store, "o")
+        #expect(store.state.toast?.isError == true)
+    }
+
+    @Test func themePickerPreviewsAndEscReverts() async {
+        let store = await makeStore()
+        var saved: [String] = []
+        store.onPersist = { saved.append("\($0).\($1)=\($2)") }
+        await press(store, ":")
+        await type(store, "theme")
+        await press(store, "<cr>")
+        await press(store, "j")
+        #expect(store.state.theme == .tokyoNight)
+        await press(store, "<esc>")
+        #expect(store.state.theme == .midnight)
+        #expect(saved.isEmpty)
+
+        await press(store, ":")
+        await type(store, "theme")
+        await press(store, "<cr>jj<cr>")
+        #expect(store.state.theme == .catppuccinMocha)
+        #expect(saved == ["general.theme=\"catppuccin-mocha\""])
+    }
+
+    @Test func settingsToggleAppliesAndPersists() async {
+        let store = await makeStore()
+        var saved: [String] = []
+        store.onPersist = { saved.append("\($0).\($1)=\($2)") }
+        await press(store, "g,")
+        #expect(store.state.route == .settings)
+        #expect(screen(for: .settings, in: store.state).rows.count == SettingKey.allCases.count)
+        await press(store, "j<cr>")  // Album artwork
+        #expect(!store.state.prefs.showArtwork)
+        #expect(!store.state.art.enabled)
+        #expect(saved == ["appearance.show_artwork=false"])
+        // Setting the artwork snapshot later doesn't turn it back on.
+        store.setArtwork(ArtworkSnapshot(mode: .kitty))
+        #expect(!store.state.art.enabled)
+    }
+
+    @Test func commandsForAppearance() async {
+        let store = await makeStore()
+        await press(store, ":")
+        await type(store, "visualizer off")
+        await press(store, "<cr>")
+        #expect(!store.state.prefs.showVisualizer)
+        await press(store, ":")
+        await type(store, "immersive")
+        await press(store, "<cr>")
+        #expect(store.state.route == .nowPlaying)
+        await press(store, ":")
+        await type(store, "nowplaying")
+        await press(store, "<cr>")
+        #expect(store.state.route == .home)
+    }
+
+    @Test func commandCompletionCoversArguments() async {
+        #expect(CommandLine.complete("sh", themes: Theme.all) == "shuffle ")
+        #expect(CommandLine.complete("theme no", themes: Theme.all) == "theme nord")
+        #expect(CommandLine.complete("repeat o", themes: Theme.all) == "repeat o")
+        #expect(CommandLine.suggestions("rpt", themes: Theme.all) == ["repeat"])
+        #expect(CommandLine.complete("zzz", themes: Theme.all) == nil)
+    }
+
+    @Test func commandHistoryRecallsAndPersists() async throws {
+        let path = NSTemporaryDirectory() + "hm-history-\(UUID().uuidString)"
+        defer { try? FileManager.default.removeItem(atPath: path) }
+        let store = AppStore(backend: DemoBackend(autoTick: false), historyPath: path)
+        await store.start()
+        await press(store, ":")
+        await type(store, "albums")
+        await press(store, "<cr>:")
+        await type(store, "songs")
+        await press(store, "<cr>:")
+        await press(store, "<up>")
+        #expect(store.state.input == "songs")
+        await press(store, "<up>")
+        #expect(store.state.input == "albums")
+        await press(store, "<down><down>")
+        #expect(store.state.input == "")
+        await press(store, "<esc>")
+        let reloaded = AppStore(backend: DemoBackend(autoTick: false), historyPath: path)
+        #expect(reloaded.state.commandHistory == ["albums", "songs"])
+    }
+
+    @Test func recentlyPlayedAndSidebarFollowCapabilities() async {
+        let store = await makeStore()
+        await press(store, "gr")
+        #expect(store.state.route == .recentlyPlayed)
+        #expect(!screen(for: .recentlyPlayed, in: store.state).rows.isEmpty)
+        #expect(Route.sidebar([]).compactMap { $0 }.contains(.recentlyPlayed) == false)
+        #expect(Route.sidebar([.recentlyPlayed]).compactMap { $0 }.contains(.recentlyPlayed))
+    }
+
+    @Test func homeRowsMoveIn2D() async {
+        let store = await makeStore()
+        store.gridColumns = 4
+        store.listHeight = 30
+        let rows = screen(for: .home, in: store.state).rows
+        let sections = AppStore.sections(in: rows)
+        #expect(sections.count >= 2)
+        #expect(store.selectedIndex == sections[0].lowerBound)
+        await press(store, "l")
+        #expect(store.selectedIndex == sections[0].lowerBound + 1)
+        await press(store, "j")
+        #expect(store.selectedIndex == sections[1].lowerBound + 1)
+        await press(store, "k")
+        #expect(store.selectedIndex == sections[0].lowerBound + 1)
+        await press(store, "h")
+        #expect(store.state.focus == .content)
+        await press(store, "h")  // already on the first tile: on to the sidebar
+        #expect(store.state.focus == .sidebar)
+        let frame = ShellView.render(store.state, columns: 140, rows: 40, selectedIndex: store.selectedIndex).plainText
+        #expect(frame.contains("RECENTLY PLAYED"))
+    }
+
+    @Test func authGateBlocksUntilConnected() async {
+        let backend = GatedBackend()
+        let store = AppStore(backend: backend)
+        await store.start()
+        await store.settle()
+        #expect(store.state.auth.state == .notDetermined)
+        #expect(store.state.data[.home] == nil)
+        var text = ShellView.render(store.state, columns: 120, rows: 40, selectedIndex: 0).plainText
+        #expect(text.contains("Connect Apple Music"))
+        await press(store, "<cr>")
+        #expect(store.state.auth.state == .authorized)
+        #expect(store.state.data[.home] != nil)
+        text = ShellView.render(store.state, columns: 120, rows: 40, selectedIndex: 0).plainText
+        #expect(!text.contains("Connect Apple Music"))
+    }
+
+    @Test(arguments: [(AuthState.denied, "Privacy & Security", true), (.restricted, "restricted", false),
+                      (.noSubscription, "subscription", false), (.unavailable, "isn't available", false)])
+    func authGateExplainsEachState(_ state: AuthState, _ text: String, _ canConnect: Bool) {
+        let gate = authGate(route: .home, status: AuthStatus(state: state))
+        #expect(gate?.canConnect == canConnect)
+        #expect(((gate?.lines ?? []) + [gate?.title ?? ""]).joined().contains(text))
+    }
+
+    @Test func noSubscriptionStillAllowsLibrary() {
+        #expect(authGate(route: .albums, status: AuthStatus(state: .noSubscription)) == nil)
+        #expect(authGate(route: .settings, status: AuthStatus(state: .denied)) == nil)
+    }
+
+    @Test func helpReflectsRebindingAndScrollsWhenShort() async {
+        var keymap = Keymap.standard
+        _ = keymap.apply(overrides: ["normal": ["<c-n>": "next_track", ">": "none"]])
+        #expect(HelpContent.lines(keymap).contains { $0.keys.contains("Ctrl+n") })
+        let store = await makeStore()
+        store.terminalRows = 20
+        await press(store, "?jj")
+        #expect(store.state.overlay == .help)
+        #expect(store.state.helpScroll == 2)
+        #expect(ShellView.render(store.state, columns: 80, rows: 20, selectedIndex: 0).plainText.contains("scroll"))
+        await press(store, "x")
+        #expect(store.state.overlay == nil)
+        #expect(store.state.helpScroll == 0)
+    }
+
+    @Test func immersiveIsFullScreen() async {
+        let store = await makeStore()
+        await press(store, "ga<cr><cr>v")
+        let text = ShellView.render(store.state, columns: 120, rows: 40, selectedIndex: 0).plainText
+        #expect(text.contains("NOW PLAYING"))
+        #expect(!text.contains("⌂  Home"))
+        store.setDynamicAccent(.rgb(1, 2, 3))
+        #expect(store.state.decorativeTheme.accent == .rgb(1, 2, 3))
+    }
+
+    @Test func everyThemeRendersAndNoBordersHidesLines() async {
+        let store = await makeStore()
+        for theme in Theme.all {
+            await press(store, ":")
+            await type(store, "theme \(theme.name)")
+            await press(store, "<cr>")
+            #expect(store.state.theme == theme)
+            _ = ShellView.render(store.state, columns: 120, rows: 40, selectedIndex: 0)
+        }
+        #expect(Set(Theme.all.map(\.name)).count == 7)
+    }
+
+    @Test func customThemesParse() throws {
+        let (theme, warnings) = Theme.parse(name: "mine", text: """
+        # comment
+        base = "nord"
+        accent = "#112233"
+        border = "nope"
+        sparkle = "#000000"
+        """)
+        #expect(theme.name == "mine")
+        #expect(theme.accent == .rgb(0x11, 0x22, 0x33))
+        #expect(theme.background == Theme.nord.background)
+        #expect(warnings.count == 2)
+
+        let dir = NSTemporaryDirectory() + "hm-themes-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: dir) }
+        try "accent = \"#010203\"".write(toFile: dir + "/nord.toml", atomically: true, encoding: .utf8)
+        let available = Theme.available(customDirectory: dir)
+        #expect(available.themes.count == Theme.all.count)
+        #expect(available.themes.first { $0.name == "nord" }?.accent == .rgb(1, 2, 3))
+    }
+
+    @Test func routesKnowTheirPageNames() {
+        #expect(Route.page("albums") == .albums)
+        #expect(Route.albums.pageName == "albums")
+        #expect(Route.page("nope") == nil)
+        #expect(Route.album("x").pageName == nil)
+    }
+
+    @Test func extraMotions() async {
+        let store = await makeStore()
+        await press(store, "gl<c-f>")
+        #expect(store.selectedIndex == 9)
+        await press(store, "<c-b>")
+        #expect(store.selectedIndex == 0)
+        await press(store, "30jzz")
+        #expect(store.state.scroll[.songs] == 25)
+    }
+
+    @Test func keysTextListsEverySection() {
+        let text = Keymap.standard.helpText()
+        #expect(text.contains("PLAYBACK") && text.contains("j / k") && text.contains("Ctrl+d / Ctrl+u"))
+        #expect(Keymap.standard.helpMarkdown().contains("| `Space` | play / pause |"))
+    }
+
+    @Test func focusEventsDecodeAndAreIgnoredByTheStore() async {
+        var decoder = KeyDecoder()
+        #expect(decoder.feed(Array("\u{1B}[I\u{1B}[O".utf8)) == [.focusIn, .focusOut])
+        let store = await makeStore()
+        store.handle(.focusOut)
+        #expect(store.state.pendingKeys.isEmpty)
+    }
+}
+
+/// A backend that starts unauthorized, as a new install does.
+actor GatedBackend: MusicBackend {
+    private let demo = DemoBackend(autoTick: false)
+    private var status = AuthStatus(state: .notDetermined)
+    func capabilities() async -> Set<Capability> { await demo.capabilities() }
+    func authStatus() async -> AuthStatus { status }
+    func requestAuthorization() async -> AuthStatus {
+        status = AuthStatus(state: .authorized)
+        return status
+    }
+    func play(_ request: PlayRequest) async throws { try await demo.play(request) }
+    func pause() async throws { try await demo.pause() }
+    func togglePlayPause() async throws { try await demo.togglePlayPause() }
+    func next() async throws { try await demo.next() }
+    func previous() async throws { try await demo.previous() }
+    func seek(to position: TimeInterval) async throws { try await demo.seek(to: position) }
+    func setShuffle(_ on: Bool) async throws { try await demo.setShuffle(on) }
+    func setRepeat(_ mode: RepeatMode) async throws { try await demo.setRepeat(mode) }
+    func enqueue(songIDs: [String], at position: EnqueuePosition) async throws { try await demo.enqueue(songIDs: songIDs, at: position) }
+    func removeFromQueue(entryID: String) async throws { try await demo.removeFromQueue(entryID: entryID) }
+    func moveQueueEntry(entryID: String, to index: Int) async throws { try await demo.moveQueueEntry(entryID: entryID, to: index) }
+    func clearUpcoming() async throws { try await demo.clearUpcoming() }
+    func search(_ query: SearchQuery) async throws -> SearchResults { try await demo.search(query) }
+    func librarySongs(sort: SortKey, offset: Int, limit: Int) async throws -> Page<Track> { try await demo.librarySongs(sort: sort, offset: offset, limit: limit) }
+    func libraryAlbums(sort: SortKey, offset: Int, limit: Int) async throws -> Page<Album> { try await demo.libraryAlbums(sort: sort, offset: offset, limit: limit) }
+    func libraryArtists(offset: Int, limit: Int) async throws -> Page<Artist> { try await demo.libraryArtists(offset: offset, limit: limit) }
+    func libraryPlaylists(offset: Int, limit: Int) async throws -> Page<Playlist> { try await demo.libraryPlaylists(offset: offset, limit: limit) }
+    func album(id: String) async throws -> AlbumDetail { try await demo.album(id: id) }
+    func artist(id: String) async throws -> ArtistDetail { try await demo.artist(id: id) }
+    func playlist(id: String) async throws -> PlaylistDetail { try await demo.playlist(id: id) }
+    func home() async throws -> HomeSections { try await demo.home() }
+    func playbackState() async -> PlaybackState { await demo.playbackState() }
+    func queueState() async -> QueueState { await demo.queueState() }
+    func events() async -> AsyncStream<BackendEvent> { await demo.events() }
+}

@@ -1,0 +1,64 @@
+# Builds, signs, notarizes and packages on a version tag, then attaches the
+# files to a draft GitHub release for a person to review and publish.
+#
+# Repository secrets:
+#   DEVELOPER_ID_P12        Base64 of the Developer ID Application .p12
+#   DEVELOPER_ID_PASSWORD   Its password
+#   NOTARY_KEY_P8           Base64 of an App Store Connect API key (.p8)
+#   NOTARY_KEY_ID           The key's ID
+#   NOTARY_ISSUER_ID        Its issuer ID
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test
+        run: swift test
+
+      - name: Import the signing certificate
+        env:
+          P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          P12_PASSWORD: ${{ secrets.DEVELOPER_ID_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+
+      - name: Build and sign
+        run: Scripts/build-host.sh
+
+      - name: Notarize
+        env:
+          KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+          KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          echo "$KEY_P8" | base64 --decode > "$RUNNER_TEMP/key.p8"
+          xcrun notarytool store-credentials harmune-ci --key "$RUNNER_TEMP/key.p8" --key-id "$KEY_ID" --issuer "$ISSUER_ID"
+          rm "$RUNNER_TEMP/key.p8"
+          Scripts/notarize.sh harmune-ci
+
+      - name: Package
+        run: Scripts/package.sh
+
+      - name: Create a draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" build/release/* --draft --generate-notes

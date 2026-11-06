@@ -26,6 +26,18 @@ public struct Renderer: Sendable {
     /// Forces the next frame to redraw everything (e.g. after resume).
     public mutating func invalidate() { previous = nil }
 
+    /// Makes the next frame rewrite these cells, even if they look unchanged.
+    /// Used where an inline image covered them.
+    public mutating func damage(_ rect: Rect) {
+        guard var canvas = previous else { return }
+        for y in max(0, rect.y)..<min(canvas.height, rect.maxY) {
+            for x in max(0, rect.x)..<min(canvas.width, rect.maxX) {
+                canvas[x, y].char = "\u{0}"
+            }
+        }
+        previous = canvas
+    }
+
     public mutating func frame(_ canvas: Canvas) -> String {
         var out = "\u{1B}[?2026h"  // synchronized update (ignored if unsupported)
         let full = previous == nil || previous!.width != canvas.width || previous!.height != canvas.height

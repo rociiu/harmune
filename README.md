@@ -3,32 +3,32 @@
 Your music. Your terminal. A keyboard-first Apple Music player for macOS.
 
 - Product spec: [product_spec.md](product_spec.md)
+- Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Development and releasing: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
+- IPC protocol: [docs/PROTOCOL.md](docs/PROTOCOL.md)
 - Review notes: [docs/SPEC_REVIEW.md](docs/SPEC_REVIEW.md)
 - Implementation plan: [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md)
 
 ## Status
 
-Phase 1 MVP slices (plan M1.1–M1.6, running on the demo backend):
+Harmune plays Apple Music from a signed host with Music.app closed, and keeps playing after the terminal closes ([test results](docs/PHASE0_RESULTS.md)). It hasn't been released yet: a public build needs a Developer ID certificate and notarization, so for now you build it yourself.
 
-| Module | What's there |
-|---|---|
-| `HarmuneCore` | Domain models, the `MusicBackend` protocol, playback clock extrapolation, typed errors, paths |
-| `HarmuneIPC` | NDJSON wire protocol, Unix socket server/client (0600, same-UID peer check, single-instance lock), `RemoteBackend` |
-| `HarmuneDemo` | `DemoBackend`: deterministic fictional library with generated cover art, simulated playback clock, queue/shuffle/repeat |
-| `HarmuneTerminal` | The TUI. A small renderer of our own (cell canvas + diffed ANSI output, truecolor/256/`NO_COLOR`), store, keymap, and screens: Home, Search, Songs, Albums (artwork grid or list, `t`), Artists, Playlists, album/playlist/artist detail, Queue, Now Playing, help, command line. Artwork via the Kitty graphics protocol (Kitty, Ghostty) or half-block pixels elsewhere |
-| `HarmuneConfig` | `config.toml` parsing and validation with line-numbered warnings; custom keybindings |
-| `harmune` | Launches the TUI with no arguments, plus CLI subcommands for playback, queue, search, library and `service` management. Auto-starts the host detached from the terminal |
-| `harmune-host` | Development host that serves `DemoBackend` over the socket |
-| `HarmuneMusic`, `HarmuneHostApp` | `MusicKitBackend` and the host app that serves it, packaged as `build/Harmune.app`. Plays Apple Music with Music.app closed |
+**What's in it**
 
-**Phase 0 status:** playback works from an Apple Development build with no provisioning profile ([results](docs/PHASE0_RESULTS.md), [how to run the checks](docs/PHASE0_SETUP.md)). Still to check: music surviving a closed terminal window, the TUI against Apple Music, and a notarized Developer ID build.
-Not built yet:
-- iTerm2 and Sixel image protocols, tmux passthrough, and querying the terminal for graphics support (detection is by terminal name; `HARMUNE_GRAPHICS=kitty|halfblock|none` overrides it)
-- sorting, favorites, and themes beyond `harmune-midnight` and `mono`
-- queue removal and reordering on the MusicKit backend (off until Phase 0 check V11 shows they work)
-- an authorization flow in the TUI (use `harmune auth`)
+- **TUI:** Home, Search, Songs, Albums (artwork grid or list), Artists, Playlists, Recently Played, album, artist and playlist pages, Queue, immersive Now Playing, Settings, help and command mode
+- **Themes:** harmune-midnight, tokyo-night, catppuccin-mocha, gruvbox-dark, nord, dracula, mono, and your own
+- **Artwork:** Kitty graphics (Kitty, Ghostty), iTerm2 inline images (iTerm2, WezTerm), Sixel, or half-blocks everywhere else
+- **CLI:** playback, queue, search, library, service, config, key list, shell completions and cache
 
-**UI framework decision:** instead of the beta SwiftTUI, Harmune uses a small renderer of its own, the fallback in the plan's Phase 0. Views only draw into a `Canvas`, so this can be revisited later.
+**Known limitations**
+
+- Removing, reordering and clearing the queue are off on Apple Music until they've been tested. Adding works.
+- Favorites aren't supported.
+- The visualizer is decorative, because MusicKit doesn't expose audio.
+- There's no volume control, because MusicKit has no API for it on macOS.
+- Inside tmux, artwork uses half-blocks.
+- Kitty, iTerm2 and Sixel image output is tested by its bytes, but hasn't been checked by eye in those terminals yet.
+- Track transition animations and the blurred artwork background from the spec aren't built.
 
 ## Try it
 
@@ -38,37 +38,49 @@ The demo library is fictional, so you don't need an Apple account.
 swift build
 ```
 
-Run the TUI against an in-process demo library:
-
 ```bash
 .build/debug/harmune --demo
 ```
 
-Or run it against the background host, so music keeps playing after you quit:
+Press `?` inside the app for keys, or see [docs/KEYBINDINGS.md](docs/KEYBINDINGS.md).
+
+## Use it with Apple Music
+
+You need an Apple Developer account for signing and an Apple Music subscription. Set up your App ID using [docs/PHASE0_SETUP.md](docs/PHASE0_SETUP.md), then build:
 
 ```bash
-.build/debug/harmune
-```
-
-Press `?` inside the app for keys. The CLI also works against the same host:
-
-```bash
-.build/debug/harmune library albums
-```
-
-```bash
-.build/debug/harmune play --album al1 --track 2
+Scripts/build-host.sh
 ```
 
 ```bash
-.build/debug/harmune status --json
+build/Harmune.app/Contents/Resources/bin/harmune
+```
+
+The first run asks you to connect Apple Music. Music keeps playing when you quit, and the host exits after 30 idle minutes. To stop it yourself:
+
+```bash
+build/Harmune.app/Contents/Resources/bin/harmune service stop
+```
+
+The CLI uses the same host:
+
+```bash
+build/Harmune.app/Contents/Resources/bin/harmune search "In Rainbows"
 ```
 
 ```bash
-.build/debug/harmune service stop --force
+build/Harmune.app/Contents/Resources/bin/harmune play --search "Reckoner"
 ```
 
-The first command that needs the host starts `harmune-host --demo` in its own session, so it keeps running after the terminal closes. The host exits after 30 idle minutes. Set `HARMUNE_SOCKET=/tmp/x.sock` to use an isolated socket.
+```bash
+build/Harmune.app/Contents/Resources/bin/harmune status --json
+```
+
+Run `harmune --help` for everything else. For shell completions, add this to `~/.zshrc`:
+
+```bash
+eval "$(harmune completions zsh)"
+```
 
 ## Configuration
 
@@ -76,16 +88,27 @@ Harmune reads `~/.config/harmune/config.toml` (or `$XDG_CONFIG_HOME/harmune/conf
 
 ```toml
 [general]
-theme = "harmune-midnight"   # or "mono"
+theme = "harmune-midnight"   # or tokyo-night, catppuccin-mocha, gruvbox-dark, nord, dracula, mono
 start_page = "albums"        # home, search, songs, albums, artists, playlists, queue
+restore_last_view = false
 
 [appearance]
 show_artwork = true
-graphics = "auto"            # auto, kitty, halfblock, none
+graphics = "auto"            # auto, kitty, iterm2, sixel, halfblock, none
 album_view = "grid"          # grid or table
+artwork_size = "medium"      # small, medium, large (immersive view)
+show_visualizer = true
+show_borders = true
+dynamic_colors = true        # accent colors from the current cover
 
 [animation]
+enabled = true
 reduced_motion = false
+max_fps = 20
+
+[player]
+show_progress = true
+show_duration = true
 
 [keys]
 sequence_timeout_ms = 600
@@ -95,10 +118,24 @@ sequence_timeout_ms = 600
 "s" = "none"                 # unbind
 ```
 
+Settings (`g,`), the theme picker (`:theme`) and `t` in Albums save their changes here, and leave the rest of the file as you wrote it.
+
+### Custom themes
+
+Add a file such as `~/.config/harmune/themes/my-theme.toml`. Anything you leave out comes from `base`:
+
+```toml
+base = "nord"
+accent = "#C6A5FF"
+background = "#101018"
+```
+
+Tokens: `background`, `surface`, `elevated`, `text`, `text_secondary`, `muted`, `accent`, `accent_pink`, `accent_blue`, `success`, `warning`, `error`, `border`.
+
 Check a config file:
 
 ```bash
-.build/debug/harmune config check
+harmune config check
 ```
 
 ## Tests
@@ -106,3 +143,7 @@ Check a config file:
 ```bash
 swift test
 ```
+
+## License
+
+MIT. See [LICENSE](LICENSE).

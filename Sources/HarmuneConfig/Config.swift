@@ -8,10 +8,19 @@ public struct HarmuneConfig: Equatable, Sendable {
     public var theme = "harmune-midnight"
     public var startPage = "home"
     public var showArtwork = true
-    /// "auto", "kitty", "halfblock" or "none".
+    public var restoreLastView = false
+    /// "auto", "kitty", "iterm2", "sixel", "halfblock" or "none".
     public var graphics = "auto"
     /// "grid" or "table".
     public var albumView = "grid"
+    /// "small", "medium" or "large": the immersive view's cover.
+    public var artworkSize = "medium"
+    public var showVisualizer = true
+    public var showBorders = true
+    public var dynamicColors = true
+    public var showProgress = true
+    public var showDuration = true
+    public var maxFPS = 20
     public var animations = true
     public var reducedMotion = false
     public var sequenceTimeoutMs = 600
@@ -84,18 +93,56 @@ public struct HarmuneConfig: Equatable, Sendable {
         switch name {
         case "general.theme": string { theme = $0 }  // validated against installed themes by the TUI
         case "general.start_page": string(Self.startPages) { startPage = $0 }
-        case "general.restore_last_view": break  // reserved
+        case "general.restore_last_view": bool { restoreLastView = $0 }
         case "appearance.show_artwork": bool { showArtwork = $0 }
-        case "appearance.graphics": string(["auto", "kitty", "halfblock", "none"]) { graphics = $0 }
+        case "appearance.graphics": string(["auto", "kitty", "iterm2", "sixel", "halfblock", "none"]) { graphics = $0 }
         case "appearance.album_view": string(["grid", "table"]) { albumView = $0 }
-        case "appearance.artwork_size", "appearance.show_visualizer", "appearance.show_borders",
-             "appearance.dynamic_colors", "player.show_progress", "player.show_duration", "animation.max_fps":
-            break  // in the spec, not yet implemented; accepted silently
+        case "appearance.artwork_size": string(["small", "medium", "large"]) { artworkSize = $0 }
+        case "appearance.show_visualizer": bool { showVisualizer = $0 }
+        case "appearance.show_borders": bool { showBorders = $0 }
+        case "appearance.dynamic_colors": bool { dynamicColors = $0 }
+        case "player.show_progress": bool { showProgress = $0 }
+        case "player.show_duration": bool { showDuration = $0 }
+        case "animation.max_fps": int(1...60) { maxFPS = $0 }
         case "animation.enabled": bool { animations = $0 }
         case "animation.reduced_motion": bool { reducedMotion = $0 }
         case "keys.sequence_timeout_ms": int(100...5000) { sequenceTimeoutMs = $0 }
         default: warnings.append("line \(value.line): unknown setting \(name)")
         }
+    }
+}
+
+extension HarmuneConfig {
+    /// Sets one value and leaves the rest of the file, comments included, as
+    /// the person wrote it. `literal` is TOML, so strings include their quotes.
+    public static func setting(section: String, key: String, literal: String, in text: String) -> String {
+        var lines = text.isEmpty ? [] : text.components(separatedBy: "\n")
+        if lines.last == "" { lines.removeLast() }
+        let assignment = "\(key) = \(literal)"
+        guard let header = lines.firstIndex(where: { $0.trimmingCharacters(in: .whitespaces) == "[\(section)]" }) else {
+            if !lines.isEmpty { lines.append("") }
+            lines += ["[\(section)]", assignment]
+            return lines.joined(separator: "\n") + "\n"
+        }
+        var i = header + 1
+        while i < lines.count, !lines[i].trimmingCharacters(in: .whitespaces).hasPrefix("[") {
+            let line = TOMLLite.stripComment(lines[i])
+            if let eq = TOMLLite.findEquals(line), line[..<eq].trimmingCharacters(in: .whitespaces) == key {
+                lines[i] = assignment
+                return lines.joined(separator: "\n") + "\n"
+            }
+            i += 1
+        }
+        lines.insert(assignment, at: header + 1)
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// Saves one setting to the config file, creating the file if needed.
+    public static func save(section: String, key: String, literal: String, path: String) throws {
+        let text = (try? String(contentsOfFile: path, encoding: .utf8)) ?? ""
+        let directory = (path as NSString).deletingLastPathComponent
+        try FileManager.default.createDirectory(atPath: directory, withIntermediateDirectories: true)
+        try setting(section: section, key: key, literal: literal, in: text).write(toFile: path, atomically: true, encoding: .utf8)
     }
 }
 

@@ -8,6 +8,8 @@ public enum Key: Hashable, Sendable, CustomStringConvertible {
     case ctrl(Character)
     case enter, escape, tab, backTab, backspace, space
     case up, down, left, right
+    /// The terminal window gained or lost focus. Never bound to a command.
+    case focusIn, focusOut
 
     public var description: String {
         switch self {
@@ -23,6 +25,8 @@ public enum Key: Hashable, Sendable, CustomStringConvertible {
         case .down: "<down>"
         case .left: "<left>"
         case .right: "<right>"
+        case .focusIn: "<focus-in>"
+        case .focusOut: "<focus-out>"
         }
     }
 
@@ -117,6 +121,8 @@ public struct KeyDecoder: Sendable {
                 case (0x43, _): .right
                 case (0x44, _): .left
                 case (0x5A, _): .backTab
+                case (0x49, "") where pending[1] == 0x5B: .focusIn
+                case (0x4F, "") where pending[1] == 0x5B: .focusOut
                 default: nil
                 }
                 return (key, end + 1)

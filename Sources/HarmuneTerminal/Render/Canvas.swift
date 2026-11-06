@@ -134,6 +134,17 @@ public struct Canvas: Equatable, Sendable {
         }
     }
 
+    /// Sets blank cells with exactly this style, whatever was drawn before.
+    /// Inline images live in these cells, so the cells mustn't change while
+    /// the image is showing.
+    public mutating func blank(_ rect: Rect, style: Style) {
+        for y in max(0, rect.y)..<min(height, rect.maxY) {
+            for x in max(0, rect.x)..<min(width, rect.maxX) {
+                self[x, y] = Cell(char: " ", style: style)
+            }
+        }
+    }
+
     /// Restyles cells without changing their characters.
     public mutating func paint(_ rect: Rect, style: Style) {
         for y in max(0, rect.y)..<min(height, rect.maxY) {
