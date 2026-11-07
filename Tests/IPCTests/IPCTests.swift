@@ -124,6 +124,9 @@ import Testing
         let (server, _, path) = try makeServer()
         defer { server.stop() }
         let fd = try UnixSocket.connect(path: path)
+        // The server may hang up partway through, which must not kill this process.
+        var noSigPipe: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
         for junk in ["not json\n", "{\"version\":1}\n", "[1,2,3]\n", String(repeating: "x", count: 5000) + "\n"] {
             _ = junk.withCString { write(fd, $0, strlen($0)) }
         }

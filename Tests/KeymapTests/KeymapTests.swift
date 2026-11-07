@@ -5,6 +5,14 @@ import Testing
 @Suite struct KeymapTests {
     let t0 = Date(timeIntervalSince1970: 0)
 
+    /// CONTRIBUTING.md: regenerate this file with `harmune keys --markdown`.
+    @Test func keybindingsDocMatchesTheDefaults() throws {
+        let doc = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("docs/KEYBINDINGS.md")
+        #expect(try String(contentsOf: doc, encoding: .utf8).contains(Keymap.standard.helpMarkdown()))
+    }
+
     func run(_ sequence: String, context: KeyContext = .global) -> [KeyResolution] {
         var r = KeyResolver()
         return Key.parseSequence(sequence)!.map { r.feed($0, context: context, at: t0) }

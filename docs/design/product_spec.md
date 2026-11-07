@@ -1,5 +1,7 @@
 # Harmune — Product Specification
 
+> **Historical design document.** This is the original plan, not a description of the current app. For example, Harmune uses a small custom renderer rather than SwiftTUI. See the [README](../../README.md) for what exists today.
+
 **Tagline:** Your music. Your terminal.  
 **Version:** 1.1 Draft (revised — see docs/SPEC_REVIEW.md)  
 **Date:** October 15, 2026  

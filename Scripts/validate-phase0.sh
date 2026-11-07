@@ -57,7 +57,7 @@ write_results() {
         echo "## Host log (last 40 lines)"
         echo
         echo '```'
-        tail -40 "$LOG" 2>/dev/null
+        tail -40 "$LOG" 2>/dev/null | sed "s|$HOME|~|g"
         echo '```'
     } > "$OUT"
     echo
@@ -164,7 +164,7 @@ SCHEMES="$(grep "can't download URL scheme" "$LOG" 2>/dev/null | sed 's/.*scheme
 FILES="$(ls "$HOME/Library/Caches/Harmune/artwork" 2>/dev/null | wc -l | tr -d ' ')"
 record "V9 artwork" INFO "$FILES files cached; URL schemes it couldn't download: ${SCHEMES:-none}"
 
-record "V10 home requests" INFO "open Home in the TUI, then look for 'home:' lines in $LOG"
+record "V10 home requests" INFO "open Home in the TUI, then look for 'home:' lines in ~/Library/Logs/Harmune/host.log"
 
 echo
 echo "Music is paused. Resume with: $CLI toggle"

@@ -8,7 +8,7 @@ A count repeats motions, such as `5j` or `3]`. Multi-key sequences such as `gg` 
 
 | Keys | Action |
 |---|---|
-| `↓` / `↑` or `j` / `k` | move down / up (5j moves five) |
+| `j` / `k` | move down / up; arrow keys also work (5j moves five) |
 | `gg` / `G` | first / last item |
 | `Ctrl+d` / `Ctrl+u` | half page down / up |
 | `Ctrl+f` / `Ctrl+b` | full page down / up |
@@ -30,7 +30,7 @@ A count repeats motions, such as `5j` or `3]`. Multi-key sequences such as `gg` 
 | `gA` | Artists |
 | `gp` | Playlists |
 | `gf` | Favorites (if supported) |
-| `f` | Add the selected catalog song or album to Apple Music favorites (if supported) |
+| `f` | add the selected catalog song or album to Apple Music favorites (if supported) |
 | `gr` | Recently Played |
 | `gq` | Queue |
 | `gn` | Now Playing |

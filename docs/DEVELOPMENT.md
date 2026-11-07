@@ -62,7 +62,7 @@ swift test
 
 Releases need a **Developer ID Application** certificate, which isn't the same as the Apple Development certificate used for local builds.
 
-1. Set the version in `Sources/HarmuneCore/Paths.swift` and update `CHANGELOG.md`.
+1. Set the version in `Sources/HarmuneCore/Paths.swift`, and give its `CHANGELOG.md` section the release date. The release workflow stops if the tag, version and changelog don't match.
 2. Build, notarize and package. `<profile>` is a keychain profile, created once with `xcrun notarytool store-credentials`:
 
    ```bash
@@ -79,5 +79,5 @@ Releases need a **Developer ID Application** certificate, which isn't the same a
 
 3. Check the result on another Mac or a new user account, including the manual checks in [PHASE0_RESULTS.md](PHASE0_RESULTS.md).
 4. To do the same in CI, push a `v*` tag. `.github/workflows/release.yml` lists the secrets it needs and creates a draft release to review.
-5. The release workflow generates `harmune.rb` with the ZIP's SHA-256 and checks that Homebrew links the bundled CLI. For a manual release, run `Scripts/render-cask.sh OWNER/REPO vX.Y.Z > build/release/harmune.rb` after packaging.
-6. Publish the GitHub Release, then copy its generated `harmune.rb` to `Casks/harmune.rb` in your public `OWNER/homebrew-tap` repository. The Release ZIP must be public before the tap points to it.
+5. The release workflow generates `harmune.rb` with the ZIP's SHA-256 and checks that Homebrew links the bundled CLI. For a manual release, run `Scripts/render-cask.sh rociiu/harmune vX.Y.Z > build/release/harmune.rb` after packaging.
+6. Publish the GitHub Release, then copy its generated `harmune.rb` to `Casks/harmune.rb` in the public `rociiu/homebrew-tap` repository. The Release ZIP must be public before the tap points to it.

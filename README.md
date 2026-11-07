@@ -2,12 +2,16 @@
 
 Your music. Your terminal. A keyboard-first Apple Music player for macOS.
 
-- Product spec: [product_spec.md](product_spec.md)
-- Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-- Development and releasing: [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
-- IPC protocol: [docs/PROTOCOL.md](docs/PROTOCOL.md)
-- Review notes: [docs/SPEC_REVIEW.md](docs/SPEC_REVIEW.md)
-- Implementation plan: [docs/IMPLEMENTATION_PLAN.md](docs/IMPLEMENTATION_PLAN.md)
+![Harmune's Albums grid, captured from the demo library with half-block artwork](docs/images/harmune-demo.png)
+
+## Requirements
+
+- macOS 15 or later
+- An Apple Music subscription, for real playback
+- To build from source: a Swift 6 toolchain (Xcode 16 or later)
+- For release builds: an Apple silicon Mac
+
+The demo needs only the Swift toolchain, with no Apple account or subscription.
 
 ## Status
 
@@ -30,10 +34,10 @@ Harmune plays Apple Music from a signed host with Music.app closed, and keeps pl
 
 ## Install with Homebrew
 
-Once the first public release and tap are available, run the following with the tap owner's GitHub name:
+Once the first public release and tap are available, run:
 
 ```bash
-brew install --cask OWNER/tap/harmune
+brew install --cask rociiu/tap/harmune
 harmune
 ```
 
@@ -55,7 +59,7 @@ Use `↑` and `↓` to move, `Enter` to open or play, and `Space` to pause or re
 
 ## Use it with Apple Music
 
-You need an Apple Developer account for signing and an Apple Music subscription. Set up your App ID using [docs/PHASE0_SETUP.md](docs/PHASE0_SETUP.md), then build:
+Until there's a notarized release, this needs a paid Apple Developer account for signing, as well as an Apple Music subscription. Set up your App ID using [docs/PHASE0_SETUP.md](docs/PHASE0_SETUP.md), then build:
 
 ```bash
 Scripts/build-host.sh
@@ -83,6 +87,12 @@ build/Harmune.app/Contents/Resources/bin/harmune play --search "Reckoner"
 
 ```bash
 build/Harmune.app/Contents/Resources/bin/harmune status --json
+```
+
+To type just `harmune`, link it from a folder on your `PATH`:
+
+```bash
+ln -s "$PWD/build/Harmune.app/Contents/Resources/bin/harmune" ~/.local/bin/harmune
 ```
 
 Run `harmune --help` for everything else. For shell completions, add this to `~/.zshrc`:
@@ -153,6 +163,17 @@ harmune config check
 swift test
 ```
 
+## Project docs
+
+- [Architecture](docs/ARCHITECTURE.md)
+- [Development and releasing](docs/DEVELOPMENT.md)
+- [IPC protocol](docs/PROTOCOL.md)
+- [Key bindings](docs/KEYBINDINGS.md)
+- [Contributing](CONTRIBUTING.md) and [security reports](SECURITY.md)
+- [Original design documents](docs/design/), kept for history
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+Harmune is an independent project, and isn't affiliated with or endorsed by Apple. Apple Music is a trademark of Apple Inc.

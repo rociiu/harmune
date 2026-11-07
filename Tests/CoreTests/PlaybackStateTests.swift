@@ -2,6 +2,16 @@ import Foundation
 import Testing
 @testable import HarmuneCore
 
+@Suite struct PathsTests {
+    @Test func currentExecutableIsTheRealFile() throws {
+        let exe = HarmunePaths.currentExecutable()
+        #expect(exe.path.hasPrefix("/"))
+        #expect(FileManager.default.isExecutableFile(atPath: exe.path))
+        let values = try exe.resourceValues(forKeys: [.isSymbolicLinkKey])
+        #expect(values.isSymbolicLink == false)
+    }
+}
+
 @Suite struct PlaybackStateTests {
     let t0 = Date(timeIntervalSince1970: 1_000)
     let track = Track(id: "t", title: "T", artist: "A", album: "Al", duration: 100)

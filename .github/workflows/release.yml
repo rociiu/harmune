@@ -22,6 +22,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check the tag matches the version and changelog
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          source_version="$(sed -n 's/.*static let current = "\(.*\)"/\1/p' Sources/HarmuneCore/Paths.swift)"
+          if [ "$version" != "$source_version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match version $source_version in Paths.swift"
+            exit 1
+          fi
+          if ! grep -q "^## $version\( \|$\)" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no section for $version"
+            exit 1
+          fi
+
       - name: Test
         run: swift test
 

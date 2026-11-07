@@ -25,7 +25,7 @@ See [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) for how to build the real host an
   .build/debug/harmune keys --markdown
   ```
 
-  Put the output below the introduction in `docs/KEYBINDINGS.md`.
+  Put the output below the introduction in `docs/KEYBINDINGS.md`. A test fails if they differ.
 - If you change the IPC protocol, update `docs/PROTOCOL.md`.
 - Don't add third-party dependencies without discussing it in an issue first. The project has none so far.
 - `HarmuneTerminal` must not import MusicKit. Only `HarmuneMusic` does.

@@ -10,7 +10,7 @@ extension Keymap {
     /// Keys come from the live keymap, so rebinding a key updates all three.
     static let helpSections: [(title: String, entries: [HelpEntry])] = [
         ("NAVIGATION", [
-            HelpEntry(.moveDown, .moveUp, action: "move down / up (5j moves five)"),
+            HelpEntry(.moveDown, .moveUp, action: "move down / up; arrow keys also work (5j moves five)"),
             HelpEntry(.moveFirst, .moveLast, action: "first / last item"),
             HelpEntry(.halfPageDown, .halfPageUp, action: "half page down / up"),
             HelpEntry(.pageDown, .pageUp, action: "full page down / up"),
@@ -29,7 +29,7 @@ extension Keymap {
             HelpEntry(.artists, action: "Artists"),
             HelpEntry(.playlists, action: "Playlists"),
             HelpEntry(.favorites, action: "Favorites (if supported)"),
-            HelpEntry(.toggleFavorite, action: "add the selected catalog song or album to favorites (if supported)"),
+            HelpEntry(.toggleFavorite, action: "add the selected catalog song or album to Apple Music favorites (if supported)"),
             HelpEntry(.recentlyPlayed, action: "Recently Played"),
             HelpEntry(.queue, action: "Queue"),
             HelpEntry(.nowPlaying, action: "Now Playing"),

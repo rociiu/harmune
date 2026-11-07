@@ -1,6 +1,6 @@
 # Harmune — Implementation Plan
 
-**Based on:** `product_spec.md` v1.1 (see `docs/SPEC_REVIEW.md` for what changed and why)
+**Based on:** `docs/design/product_spec.md` v1.1 (see `docs/design/SPEC_REVIEW.md` for what changed and why)
 **Team assumption:** 1–2 engineers. Estimates are for one experienced Swift engineer, in focused weeks.
 **Total to 1.0:** ~20–24 weeks. Phase 0 is a hard go/no-go gate.
 

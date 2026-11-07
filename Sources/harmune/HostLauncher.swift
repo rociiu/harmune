@@ -18,7 +18,7 @@ enum HostLauncher {
         if let path = environment["HARMUNE_HOST_APP"], fm.fileExists(atPath: path) {
             return .app(URL(fileURLWithPath: path))
         }
-        let exe = URL(fileURLWithPath: CommandLine.arguments[0]).resolvingSymlinksInPath()
+        let exe = HarmunePaths.currentExecutable()
         // CLI installed inside Harmune.app/Contents/Resources/bin/harmune.
         let bundle = exe.deletingLastPathComponent().deletingLastPathComponent()
             .deletingLastPathComponent().deletingLastPathComponent()

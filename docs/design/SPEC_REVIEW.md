@@ -1,6 +1,6 @@
 # Harmune — Spec & Design Review
 
-**Reviewed:** `product_spec.md` (v1.0 Draft) and `Harmune_ Neon Terminal Music Experience.png`
+**Reviewed:** `product_spec.md` (v1.0 Draft) and the original concept image (no longer in the repository)
 **Date:** 2026-10-15
 **Outcome:** The product makes sense and the architecture is basically sound. The spec is unusually honest about risk (Phase 0, the decorative visualizer, queue-editing caveats). But several things in it are unverified, and the spec and the design disagree in places. These are fixed in `product_spec.md` v1.1. The original is kept at `docs/product_spec.v1.0-original.md`.
 

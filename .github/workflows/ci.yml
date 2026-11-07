@@ -14,3 +14,11 @@ jobs:
         run: swift build
       - name: Test
         run: swift test
+      - name: Find the host through a symlink on PATH
+        run: |
+          links="$(mktemp -d)"
+          ln -s "$PWD/.build/debug/harmune" "$links/harmune"
+          export HARMUNE_SOCKET="/tmp/harmune-ci-$$.sock"
+          cd "$links"
+          PATH="$links:$PATH" harmune service start
+          PATH="$links:$PATH" harmune service stop --force
