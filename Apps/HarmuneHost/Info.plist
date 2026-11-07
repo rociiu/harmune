@@ -6,6 +6,8 @@
 	<string>en</string>
 	<key>CFBundleExecutable</key>
 	<string>Harmune</string>
+	<key>CFBundleIconFile</key>
+	<string>Harmune.icns</string>
 	<key>CFBundleIdentifier</key>
 	<string>__BUNDLE_ID__</string>
 	<key>CFBundleInfoDictionaryVersion</key>

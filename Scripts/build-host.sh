@@ -53,6 +53,7 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/bin"
 cp "$BIN/HarmuneHostApp" "$APP/Contents/MacOS/Harmune"
 cp "$BIN/harmune" "$APP/Contents/Resources/bin/harmune"
+cp Apps/HarmuneHost/Harmune.icns "$APP/Contents/Resources/"
 VERSION="$(sed -n 's/.*static let current = "\(.*\)"/\1/p' Sources/HarmuneCore/Paths.swift)"
 sed -e "s/__BUNDLE_ID__/$BUNDLE_ID/" -e "s/__VERSION__/$VERSION/" -e "s/__BUILD__/$(date +%Y%m%d%H%M)/" \
     Apps/HarmuneHost/Info.plist > "$APP/Contents/Info.plist"
