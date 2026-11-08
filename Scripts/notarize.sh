@@ -12,7 +12,9 @@ cd "$(dirname "$0")/.."
 PROFILE="${1:?usage: Scripts/notarize.sh <keychain-profile>}"
 APP=build/Harmune.app
 
-if ! codesign -dvv "$APP" 2>&1 | grep -q '^Authority=Developer ID Application'; then
+# Capture first: with pipefail, grep -q exiting early fails the pipeline.
+signature="$(codesign -dvv "$APP" 2>&1)"
+if ! grep -q '^Authority=Developer ID Application' <<<"$signature"; then
     echo "$APP isn't signed with a Developer ID Application certificate." >&2
     exit 1
 fi
