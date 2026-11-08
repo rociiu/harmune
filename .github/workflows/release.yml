@@ -53,6 +53,14 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
           security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
           rm "$RUNNER_TEMP/cert.p12"
+          identities="$(security find-identity -v -p codesigning "$KEYCHAIN")"
+          if ! grep -q '"Developer ID Application: ' <<<"$identities"; then
+            echo "::error::DEVELOPER_ID_P12 has no Developer ID Application identity. It contains:"
+            sed -n 's/.*"\(.*\)"/  \1/p' <<<"$identities"
+            exit 1
+          fi
+          # Sign with exactly this identity, never a fallback.
+          echo "HARMUNE_SIGN_IDENTITY=$(sed -n 's/.*"\(Developer ID Application: .*\)"/\1/p' <<<"$identities" | head -1)" >> "$GITHUB_ENV"
 
       - name: Build and sign
         run: Scripts/build-host.sh
