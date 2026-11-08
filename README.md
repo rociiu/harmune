@@ -15,7 +15,7 @@ The demo needs only the Swift toolchain, with no Apple account or subscription.
 
 ## Status
 
-Harmune plays Apple Music from a signed host with Music.app closed, and keeps playing after the terminal closes ([test results](docs/PHASE0_RESULTS.md)). It hasn't been released yet: a public build needs a Developer ID certificate and notarization, so for now you build it yourself.
+Harmune plays Apple Music from a signed host with Music.app closed, and keeps playing after the terminal closes ([test results](docs/PHASE0_RESULTS.md)). Version 0.1.0 is available as a signed, notarized build through Homebrew or [GitHub Releases](https://github.com/rociiu/harmune/releases).
 
 **What's in it**
 
@@ -34,11 +34,14 @@ Harmune plays Apple Music from a signed host with Music.app closed, and keeps pl
 
 ## Install with Homebrew
 
-Once the first public release and tap are available, run:
+Homebrew only loads casks from taps you trust, so trust the cask first:
+
+```bash
+brew trust --cask rociiu/tap/harmune
+```
 
 ```bash
 brew install --cask rociiu/tap/harmune
-harmune
 ```
 
 Homebrew installs `Harmune.app` and links `harmune` into its bin directory. With Homebrew on your `PATH`, the command works as soon as installation finishes. On first launch, grant Apple Music access when prompted.
